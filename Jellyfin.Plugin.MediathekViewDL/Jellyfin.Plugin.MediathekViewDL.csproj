@@ -45,10 +45,27 @@
   <ItemGroup>
     <EmbeddedResource Include="Configuration\Web\configPage.html" />
     <EmbeddedResource Include="Configuration\Web\configPage.js" />
+    <EmbeddedResource Include="Configuration\Web\configPageVueJS.html" />
+    <None Remove="Configuration\Web\MediathekViewDLVueJS.js" />
+    <EmbeddedResource Include="Configuration\Web\MediathekViewDLVueJS.js" />
     <None Remove="Configuration\configPage.html" />
     <None Remove="Configuration\configPage.js" />
     <None Remove="Configuration\Web\configPage.css" />
   </ItemGroup>
+
+  <ItemGroup>
+    <VueSourceFiles Include="Configuration/Web/VueJS/src/**/*;Configuration/Web/VueJS/package.json;Configuration/Web/VueJS/vite.config.js" />
+  </ItemGroup>
+
+  <Target Name="BuildVue" BeforeTargets="PrepareForBuild" Inputs="@(VueSourceFiles)" Outputs="Configuration/Web/MediathekViewDLVueJS.js">
+    <PropertyGroup>
+      <VueDir>Configuration/Web/VueJS</VueDir>
+    </PropertyGroup>
+    <Message Importance="high" Text="Building VueJS configuration page..." />
+    <Exec Command="npm install" WorkingDirectory="$(VueDir)" />
+    <Exec Command="npm run build" WorkingDirectory="$(VueDir)" />
+    <Copy SourceFiles="$(VueDir)\dist\MediathekViewDLVueJS.js" DestinationFiles="Configuration\Web\MediathekViewDLVueJS.js" />
+  </Target>
 
   <!-- Fix for BadImageFormatException: Remove native runtimes that Jellyfin mistakenly tries to load as managed assemblies -->
   <Target Name="CleanRuntimes" AfterTargets="Build;Publish">
