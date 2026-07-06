@@ -6,7 +6,10 @@ using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.MediathekViewDL.Services.Downloading.Helpers;
 
-internal static class TempFileHelper
+/// <summary>
+/// Resolves the temporary file path used while downloading, honoring the configured temp directory.
+/// </summary>
+internal static partial class TempFileHelper
 {
     public static string GetTempFilePath(
         string? destinationPath,
@@ -29,7 +32,7 @@ internal static class TempFileHelper
                 }
                 catch (Exception ex)
                 {
-                    logger.LogError(ex, "Could not create configured temp directory '{TempDir}'. Falling back to system temp.", tempDir);
+                    LogConfiguredTempDirCreateFailed(logger, ex, tempDir);
                     tempDir = null; // Fallback
                 }
             }
@@ -50,7 +53,7 @@ internal static class TempFileHelper
                     }
                     catch (Exception ex)
                     {
-                        logger.LogError(ex, "Could not create temp directory '{TempDir}'. Falling back to system temp.", tempDir);
+                        LogTempDirCreateFailed(logger, ex, tempDir);
                         tempDir = null;
                     }
                 }
@@ -67,4 +70,14 @@ internal static class TempFileHelper
         var tempFileName = $"{Guid.NewGuid()}{extension}.mvdl-tmp";
         return Path.Combine(tempDir, tempFileName);
     }
+
+    #region Logging
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Could not create configured temp directory '{TempDir}'. Falling back to system temp.")]
+    private static partial void LogConfiguredTempDirCreateFailed(ILogger logger, Exception ex, string? tempDir);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Could not create temp directory '{TempDir}'. Falling back to system temp.")]
+    private static partial void LogTempDirCreateFailed(ILogger logger, Exception ex, string? tempDir);
+
+    #endregion
 }

@@ -17,7 +17,7 @@ namespace Jellyfin.Plugin.MediathekViewDL.Services;
 /// <summary>
 /// Runs database migrations and configuration updates at startup.
 /// </summary>
-public class MigrationHostedService : IHostedService
+public partial class MigrationHostedService : IHostedService
 {
     private readonly DatabaseMigrator _migrator;
     private readonly IConfigurationProvider _configProvider;
@@ -46,7 +46,7 @@ public class MigrationHostedService : IHostedService
         }
         catch (Exception ex)
         {
-            _logger.LogCritical(ex, "Failed to initialize MediathekViewDL plugin. The plugin will be disabled to prevent server instability.");
+            LogInitializationFailed(ex);
             if (Plugin.Instance is not null)
             {
                 Plugin.Instance.InitializationException = ex;
@@ -69,7 +69,7 @@ public class MigrationHostedService : IHostedService
         // Skip migration if Downgrading and log an error. Downgrading is not supported to prevent data loss and inconsistencies. The plugin should be updated to the latest version to ensure compatibility with the existing configuration.
         if (config.ConfigVersion > TargetVersion)
         {
-            _logger.LogError("Configuration version {ConfigVersion} is newer than the current supported version {CurrentConfigVersion}. No migration will be performed. Please update the plugin to the latest version. Downgrading is not Supportet.", config.ConfigVersion, TargetVersion);
+            LogConfigVersionNewer(config.ConfigVersion, TargetVersion);
             throw new UnsupportedConfigurationVersionException(config.ConfigVersion, MinimumSupportetUpgradeVersion, TargetVersion);
         }
 
@@ -83,7 +83,8 @@ public class MigrationHostedService : IHostedService
         // We set it to TargetVersion immediately to avoid the "Unsupported Version" error.
         if (config.ConfigVersion == 0 && config.LastRun == default)
         {
-            _logger.LogInformation("Fresh installation detected. Setting configuration version to {TargetVersion}.", TargetVersion);
+            LogFreshInstallation(TargetVersion);
+
             config.ConfigVersion = TargetVersion;
             _configProvider.Save();
             return;
@@ -91,12 +92,12 @@ public class MigrationHostedService : IHostedService
 
         if (config.ConfigVersion < MinimumSupportetUpgradeVersion)
         {
-            _logger.LogError("Configuration version {ConfigVersion} is too old to be migrated to the current supported version {CurrentConfigVersion}. Please install a older Version of the plugin that supports this configuration version and update the configuration step by step until it can be migrated to the latest version.", config.ConfigVersion, TargetVersion);
+            LogConfigVersionTooOld(config.ConfigVersion, TargetVersion);
             UnsupportedVersionUpgradeInfo(config.ConfigVersion, TargetVersion);
             throw new UnsupportedConfigurationVersionException(config.ConfigVersion, MinimumSupportetUpgradeVersion, TargetVersion);
         }
 
-        _logger.LogInformation("Migrating configuration from version {OldVersion} to {NewVersion}", config.ConfigVersion, TargetVersion);
+        LogMigratingConfiguration(config.ConfigVersion, TargetVersion);
 
         // Version 0 -> 1: Migrate Configuration Top-Level Settings to grouped settings
         // This Migration is planed to be supported until Version 1.0.0.0
@@ -178,11 +179,7 @@ public class MigrationHostedService : IHostedService
 
                         if (newCriteria.Fields.Count == 0)
                         {
-                            _logger.LogWarning(
-                                "Subscription '{SubscriptionName}' (ID: {SubscriptionId}) has a query with no valid fields after migration. Disabling subscription to prevent unexpected behavior. Query: '{QueryText}'",
-                                subscription.Name,
-                                subscription.Id,
-                                oldQuery.Query);
+                            LogSubscriptionNoValidFields(subscription.Name, subscription.Id, oldQuery.Query);
                             subscription.IsEnabled = false;
                             continue;
                         }
@@ -246,7 +243,7 @@ public class MigrationHostedService : IHostedService
             _configProvider.Save();
         }
 
-        _logger.LogInformation("Configuration migration completed successfully.");
+        LogMigrationCompleted();
     }
 
     private void UnsupportedVersionUpgradeInfo(int? currentVersion, int targetVersion)
@@ -254,4 +251,29 @@ public class MigrationHostedService : IHostedService
         // This is not used at the moment, as the migrations support all Version at the moment.
         // In future versions this could be just to provide more detailed Information about the Upgrade path.
     }
+
+    #region Logging
+
+    [LoggerMessage(Level = LogLevel.Critical, Message = "Failed to initialize MediathekViewDL plugin. The plugin will be disabled to prevent server instability.")]
+    private partial void LogInitializationFailed(Exception ex);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Configuration version {ConfigVersion} is newer than the current supported version {CurrentConfigVersion}. No migration will be performed. Please update the plugin to the latest version. Downgrading is not Supportet.")]
+    private partial void LogConfigVersionNewer(int configVersion, int currentConfigVersion);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Fresh installation detected. Setting configuration version to {TargetVersion}.")]
+    private partial void LogFreshInstallation(int targetVersion);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Configuration version {ConfigVersion} is too old to be migrated to the current supported version {CurrentConfigVersion}. Please install a older Version of the plugin that supports this configuration version and update the configuration step by step until it can be migrated to the latest version.")]
+    private partial void LogConfigVersionTooOld(int configVersion, int currentConfigVersion);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Migrating configuration from version {OldVersion} to {NewVersion}")]
+    private partial void LogMigratingConfiguration(int oldVersion, int newVersion);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Subscription '{SubscriptionName}' (ID: {SubscriptionId}) has a query with no valid fields after migration. Disabling subscription to prevent unexpected behavior. Query: '{QueryText}'")]
+    private partial void LogSubscriptionNoValidFields(string? subscriptionName, Guid subscriptionId, string? queryText);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Configuration migration completed successfully.")]
+    private partial void LogMigrationCompleted();
+
+    #endregion
 }

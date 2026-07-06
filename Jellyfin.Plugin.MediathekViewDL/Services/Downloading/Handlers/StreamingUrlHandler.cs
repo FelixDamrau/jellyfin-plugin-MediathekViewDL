@@ -10,7 +10,7 @@ namespace Jellyfin.Plugin.MediathekViewDL.Services.Downloading.Handlers;
 /// <summary>
 /// Handler for creating streaming URL files (.strm).
 /// </summary>
-public class StreamingUrlHandler : IDownloadHandler
+public partial class StreamingUrlHandler : IDownloadHandler
 {
     private readonly ILogger<StreamingUrlHandler> _logger;
     private readonly IFileDownloader _fileDownloader;
@@ -35,7 +35,15 @@ public class StreamingUrlHandler : IDownloadHandler
     /// <inheritdoc />
     public async Task<bool> ExecuteAsync(DownloadItem item, DownloadJob job, IProgress<double> progress, CancellationToken cancellationToken)
     {
-        _logger.LogInformation("Creating streaming URL file for '{Title}' at '{Path}'.", job.Title, item.DestinationPath);
+        LogCreatingStreamingUrlFile(job.Title, item.DestinationPath);
+
         return await _fileDownloader.GenerateStreamingUrlFileAsync(item.SourceUrl, item.DestinationPath, cancellationToken).ConfigureAwait(false);
     }
+
+    #region Logging
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Creating streaming URL file for '{Title}' at '{Path}'.")]
+    private partial void LogCreatingStreamingUrlFile(string? title, string? path);
+
+    #endregion
 }

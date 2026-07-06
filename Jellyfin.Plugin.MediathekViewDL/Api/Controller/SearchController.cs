@@ -20,7 +20,7 @@ namespace Jellyfin.Plugin.MediathekViewDL.Api.Controller;
 [ApiController]
 [Route("MediathekViewDL/[controller]")]
 [Authorize(Policy = Policies.RequiresElevation)]
-public class SearchController : ControllerBase
+public partial class SearchController : ControllerBase
 {
     private readonly IMediathekViewApiClient _apiClient;
     private readonly IConfigurationProvider _configurationProvider;
@@ -94,23 +94,23 @@ public class SearchController : ControllerBase
         }
         catch (MediathekConnectionException ex)
         {
-            _logger.LogError(ex, "Connection error while searching.");
+            LogConnectionError(ex);
             return StatusCode(503, new ApiErrorDto(ApiErrorId.MediathekUnavailable, "Die MediathekView API ist derzeit nicht erreichbar. Bitte versuchen Sie es später erneut."));
         }
         catch (MediathekParsingException ex)
         {
-            _logger.LogError(ex, "Parsing error while searching.");
+            LogParsingError(ex);
             return StatusCode(502, new ApiErrorDto(ApiErrorId.MediathekInvalidResponse, "Ungültige Antwort von der MediathekView API erhalten."));
         }
         catch (MediathekApiException ex)
         {
-            _logger.LogError(ex, "API error while searching. Status code: {StatusCode}", ex.StatusCode);
+            LogApiError(ex, ex.StatusCode);
             var statusCode = (int)ex.StatusCode >= 500 ? 502 : 500;
             return StatusCode(statusCode, new ApiErrorDto(ApiErrorId.MediathekApiError, $"Die MediathekView API hat einen Fehler zurückgegeben ({ex.StatusCode})."));
         }
         catch (MediathekException ex)
         {
-            _logger.LogError(ex, "An error occurred while searching.");
+            LogSearchError(ex);
             return StatusCode(500, new ApiErrorDto(ApiErrorId.MediathekError, "Ein unerwarteter Fehler ist beim Aufruf der MediathekView API aufgetreten."));
         }
     }
@@ -131,7 +131,7 @@ public class SearchController : ControllerBase
         }
         catch (MediathekException ex)
         {
-            _logger.LogError(ex, "Error while getting channels.");
+            LogChannelsError(ex);
             return StatusCode(502, new ApiErrorDto(ApiErrorId.MediathekApiError, "Fehler beim Abrufen der Senderliste von der MediathekView API."));
         }
     }
@@ -152,7 +152,7 @@ public class SearchController : ControllerBase
         }
         catch (MediathekException ex)
         {
-            _logger.LogError(ex, "Error while getting topics.");
+            LogTopicsError(ex);
             return StatusCode(502, new ApiErrorDto(ApiErrorId.MediathekApiError, "Fehler beim Abrufen der Themenliste von der MediathekView API."));
         }
     }
@@ -174,4 +174,26 @@ public class SearchController : ControllerBase
     {
         return Ok(_queryParser.Parse(title, topic, channel, combinedSearch));
     }
+
+    #region Logging
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Connection error while searching.")]
+    private partial void LogConnectionError(Exception ex);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Parsing error while searching.")]
+    private partial void LogParsingError(Exception ex);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "API error while searching. Status code: {StatusCode}")]
+    private partial void LogApiError(Exception ex, System.Net.HttpStatusCode statusCode);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "An error occurred while searching.")]
+    private partial void LogSearchError(Exception ex);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Error while getting channels.")]
+    private partial void LogChannelsError(Exception ex);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Error while getting topics.")]
+    private partial void LogTopicsError(Exception ex);
+
+    #endregion
 }

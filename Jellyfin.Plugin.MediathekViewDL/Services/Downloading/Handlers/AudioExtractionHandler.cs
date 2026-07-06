@@ -15,7 +15,7 @@ namespace Jellyfin.Plugin.MediathekViewDL.Services.Downloading.Handlers;
 /// <summary>
 /// Handler for audio extraction.
 /// </summary>
-public class AudioExtractionHandler : IDownloadHandler
+public partial class AudioExtractionHandler : IDownloadHandler
 {
     private readonly ILogger<AudioExtractionHandler> _logger;
     private readonly IFFmpegService _ffmpegService;
@@ -54,7 +54,8 @@ public class AudioExtractionHandler : IDownloadHandler
     /// <inheritdoc />
     public async Task<bool> ExecuteAsync(DownloadItem item, DownloadJob job, IProgress<double> progress, CancellationToken cancellationToken)
     {
-        _logger.LogInformation("Downloading '{Title}' to '{Path}'.", job.Title, item.DestinationPath);
+        LogDownloading(job.Title, item.DestinationPath);
+
         var config = _configProvider.Configuration;
 
         if (config.Download.EnableDirectAudioExtraction)
@@ -83,7 +84,7 @@ public class AudioExtractionHandler : IDownloadHandler
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to extract or move audio file for {DestinationPath}", item.DestinationPath);
+            LogAudioExtractMoveFailed(ex, item.DestinationPath);
             return false;
         }
         finally
@@ -96,7 +97,7 @@ public class AudioExtractionHandler : IDownloadHandler
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "Failed to delete temporary audio file {TempPath}", tempPath);
+                    LogDeleteTempAudioFailed(ex, tempPath);
                 }
             }
         }
@@ -112,7 +113,7 @@ public class AudioExtractionHandler : IDownloadHandler
 
             if (!await _fileDownloader.DownloadFileAsync(item.SourceUrl, tempVideoPath, downloadProgress, cancellationToken).ConfigureAwait(false))
             {
-                _logger.LogError("Failed to download temporary video for '{Title}'.", item.DestinationPath);
+                LogTempVideoDownloadFailed(item.DestinationPath);
                 return false;
             }
 
@@ -124,7 +125,7 @@ public class AudioExtractionHandler : IDownloadHandler
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to download and extract audio for {DestinationPath}", item.DestinationPath);
+            LogAudioDownloadExtractFailed(ex, item.DestinationPath);
             return false;
         }
         finally
@@ -137,9 +138,31 @@ public class AudioExtractionHandler : IDownloadHandler
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "Failed to delete temporary video file '{TempPath}'.", tempVideoPath);
+                    LogDeleteTempVideoFailed(ex, tempVideoPath);
                 }
             }
         }
     }
+
+    #region Logging
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Downloading '{Title}' to '{Path}'.")]
+    private partial void LogDownloading(string? title, string? path);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Failed to extract or move audio file for {DestinationPath}")]
+    private partial void LogAudioExtractMoveFailed(Exception ex, string? destinationPath);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Failed to delete temporary audio file {TempPath}")]
+    private partial void LogDeleteTempAudioFailed(Exception ex, string? tempPath);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Failed to download temporary video for '{Title}'.")]
+    private partial void LogTempVideoDownloadFailed(string? title);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Failed to download and extract audio for {DestinationPath}")]
+    private partial void LogAudioDownloadExtractFailed(Exception ex, string? destinationPath);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Failed to delete temporary video file '{TempPath}'.")]
+    private partial void LogDeleteTempVideoFailed(Exception ex, string? tempPath);
+
+    #endregion
 }

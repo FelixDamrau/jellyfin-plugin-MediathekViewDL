@@ -17,7 +17,7 @@ namespace Jellyfin.Plugin.MediathekViewDL.Tasks;
 /// <summary>
 /// Scheduled task to process download subscriptions.
 /// </summary>
-public class DownloadScheduledTask : IScheduledTask
+public partial class DownloadScheduledTask : IScheduledTask
 {
     private readonly ILogger<DownloadScheduledTask> _logger;
     private readonly ISubscriptionProcessor _subscriptionProcessor;
@@ -63,17 +63,17 @@ public class DownloadScheduledTask : IScheduledTask
     {
         if (Plugin.Instance?.InitializationException is not null)
         {
-            _logger.LogError("Mediathek subscription download task aborted because the plugin failed to initialize: {ErrorMessage}", Plugin.Instance.InitializationException.Message);
+            LogTaskAborted(Plugin.Instance.InitializationException.Message);
             return;
         }
 
-        _logger.LogInformation("Starting Mediathek subscription download task.");
+        LogTaskStarting();
         progress.Report(0);
 
         var config = _configurationProvider.ConfigurationOrNull;
         if (config == null || config.Subscriptions.Count == 0)
         {
-            _logger.LogInformation("No subscriptions configured. Task finished.");
+            LogNoSubscriptions();
             return;
         }
 
@@ -87,7 +87,8 @@ public class DownloadScheduledTask : IScheduledTask
 
             if (!subscription.IsEnabled)
             {
-                _logger.LogDebug("Skipping disabled subscription '{SubscriptionName}'.", subscription.Name);
+                LogSkippingDisabledSubscription(subscription.Name);
+
                 progress.Report((double)(i + 1) * subscriptionProgressShare);
                 continue;
             }
@@ -95,7 +96,7 @@ public class DownloadScheduledTask : IScheduledTask
             var baseProgressForSubscription = (double)i * subscriptionProgressShare;
             progress.Report(baseProgressForSubscription);
 
-            _logger.LogInformation("Processing subscription: {SubscriptionName}", subscription.Name);
+            LogProcessingSubscription(subscription.Name);
 
             await _subscriptionProcessor.ProcessSubscriptionAsync(subscription, cancellationToken).ConfigureAwait(false);
 
@@ -107,6 +108,28 @@ public class DownloadScheduledTask : IScheduledTask
         _configurationProvider.TryUpdate(config);
 
         progress.Report(100);
-        _logger.LogInformation("Mediathek subscription discovery task finished. Jobs are in the download queue.");
+        LogTaskFinished();
     }
+
+    #region Logging
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Mediathek subscription download task aborted because the plugin failed to initialize: {ErrorMessage}")]
+    private partial void LogTaskAborted(string? errorMessage);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Starting Mediathek subscription download task.")]
+    private partial void LogTaskStarting();
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "No subscriptions configured. Task finished.")]
+    private partial void LogNoSubscriptions();
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Skipping disabled subscription '{SubscriptionName}'.")]
+    private partial void LogSkippingDisabledSubscription(string? subscriptionName);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Processing subscription: {SubscriptionName}")]
+    private partial void LogProcessingSubscription(string? subscriptionName);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Mediathek subscription discovery task finished. Jobs are in the download queue.")]
+    private partial void LogTaskFinished();
+
+    #endregion
 }

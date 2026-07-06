@@ -25,7 +25,7 @@ namespace Jellyfin.Plugin.MediathekViewDL.Services.Adoption;
 /// <summary>
 /// Implementation of the FileAdoptionService.
 /// </summary>
-public class FileAdoptionService : IFileAdoptionService
+public partial class FileAdoptionService : IFileAdoptionService
 {
     private readonly ILogger<FileAdoptionService> _logger;
     private readonly IConfigurationProvider _configProvider;
@@ -72,7 +72,7 @@ public class FileAdoptionService : IFileAdoptionService
         var subscription = _configProvider.Configuration.Subscriptions.FirstOrDefault(s => s.Id == subscriptionId);
         if (subscription == null)
         {
-            _logger.LogWarning("Subscription {SubscriptionId} not found.", subscriptionId);
+            LogSubscriptionNotFound(subscriptionId);
             return new AdoptionInfo { Candidates = Array.Empty<AdoptionCandidate>(), ApiResults = Array.Empty<ApiResultWithInfo>() };
         }
 
@@ -209,7 +209,7 @@ public class FileAdoptionService : IFileAdoptionService
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "Failed to read info file {Path}", infoFile.FilePath);
+                    LogInfoFileReadFailed(ex, infoFile.FilePath);
                 }
             }
         }
@@ -338,4 +338,14 @@ public class FileAdoptionService : IFileAdoptionService
 
         return (weightedSum / totalWeight) * multiplier;
     }
+
+    #region Logging
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Subscription {SubscriptionId} not found.")]
+    private partial void LogSubscriptionNotFound(Guid subscriptionId);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Failed to read info file {Path}")]
+    private partial void LogInfoFileReadFailed(Exception ex, string? path);
+
+    #endregion
 }

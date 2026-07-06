@@ -15,7 +15,7 @@ namespace Jellyfin.Plugin.MediathekViewDL.Services.Downloading;
 /// <summary>
 /// Service responsible for executing download jobs.
 /// </summary>
-public class DownloadManager : IDownloadManager
+public partial class DownloadManager : IDownloadManager
 {
     private readonly ILogger<DownloadManager> _logger;
     private readonly INfoService _nfoService;
@@ -50,15 +50,18 @@ public class DownloadManager : IDownloadManager
     /// <returns>True if the job was successful (or file already existed), otherwise false.</returns>
     public async Task<bool> ExecuteJobAsync(DownloadJob job, IProgress<double> progress, CancellationToken cancellationToken)
     {
-        _logger.LogInformation("Starting download job for '{Title}'.", job.Title);
+        LogStartingDownloadJob(job.Title);
+
         var success = true;
 
         foreach (var item in job.DownloadItems)
         {
-            _logger.LogInformation("Processing download item: {Type} -> {Path}", item.JobType, item.DestinationPath);
+            LogProcessingDownloadItem(item.JobType, item.DestinationPath);
+
             if (File.Exists(item.DestinationPath))
             {
-                _logger.LogDebug("File '{Path}' already exists. Skipping download.", item.DestinationPath);
+                LogFileAlreadyExists(item.DestinationPath);
+
                 // Still continue execution so NFO and other files continue downloading.
                 continue;
             }
@@ -68,13 +71,13 @@ public class DownloadManager : IDownloadManager
                 bool isValidUrl = await _urlValidationService.ValidateUrlAsync(item.SourceUrl, cancellationToken).ConfigureAwait(false);
                 if (!isValidUrl)
                 {
-                    _logger.LogError("Invalid URL: {Url}", item.DestinationPath);
+                    LogInvalidUrl(item.DestinationPath);
                     success = false;
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "URL validation failed for {Url}", item.SourceUrl);
+                LogUrlValidationFailed(ex, item.SourceUrl);
                 success = false;
             }
 
@@ -87,7 +90,7 @@ public class DownloadManager : IDownloadManager
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Failed to create directory '{Directory}'.", directory);
+                    LogDirectoryCreationFailed(ex, directory);
                     success = false;
                     continue; // Skip this item
                 }
@@ -100,7 +103,7 @@ public class DownloadManager : IDownloadManager
             }
             else
             {
-                _logger.LogError("No handler found for download type: {Type}", item.JobType);
+                LogNoHandlerFound(item.JobType);
                 success = false;
             }
         }
@@ -117,4 +120,29 @@ public class DownloadManager : IDownloadManager
 
         return success;
     }
+
+    #region Logging
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Starting download job for '{Title}'.")]
+    private partial void LogStartingDownloadJob(string? title);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Processing download item: {Type} -> {Path}")]
+    private partial void LogProcessingDownloadItem(DownloadType type, string? path);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "File '{Path}' already exists. Skipping download.")]
+    private partial void LogFileAlreadyExists(string? path);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Invalid URL: {Url}")]
+    private partial void LogInvalidUrl(string? url);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "URL validation failed for {Url}")]
+    private partial void LogUrlValidationFailed(Exception ex, string? url);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Failed to create directory '{Directory}'.")]
+    private partial void LogDirectoryCreationFailed(Exception ex, string? directory);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "No handler found for download type: {Type}")]
+    private partial void LogNoHandlerFound(DownloadType type);
+
+    #endregion
 }

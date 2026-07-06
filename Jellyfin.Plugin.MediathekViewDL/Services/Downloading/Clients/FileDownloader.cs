@@ -13,7 +13,7 @@ namespace Jellyfin.Plugin.MediathekViewDL.Services.Downloading.Clients;
 /// <summary>
 /// Service for downloading files from a URL.
 /// </summary>
-public class FileDownloader : IFileDownloader
+public partial class FileDownloader : IFileDownloader
 {
     private readonly ILogger<FileDownloader> _logger;
     private readonly IHttpClientFactory _httpClientFactory;
@@ -52,21 +52,21 @@ public class FileDownloader : IFileDownloader
         // Validate file URL
         if (string.IsNullOrWhiteSpace(fileUrl))
         {
-            _logger.LogError("File URL cannot be null or empty.");
+            LogFileUrlEmpty();
             return false;
         }
 
         // Validate destination path
         if (string.IsNullOrWhiteSpace(destinationPath))
         {
-            _logger.LogError("Destination path cannot be null or empty for URL: {FileUrl}", fileUrl);
+            LogDestinationPathEmpty(fileUrl);
             return false;
         }
 
         // Validate plugin configuration
         if (pluginConfig is null)
         {
-            _logger.LogError("Plugin configuration is not available.");
+            LogPluginConfigUnavailable();
             return false;
         }
 
@@ -74,11 +74,11 @@ public class FileDownloader : IFileDownloader
         var domainAllowed = CheckDomainAllowed(fileUrl, pluginConfig, pluginConfig.Network.AllowUnknownDomains);
         if (!pluginConfig.Network.AllowUnknownDomains && !domainAllowed)
         {
-            _logger.LogError("Download from unknown domain is not allowed: {FileUrl}", fileUrl);
+            LogUnknownDomainNotAllowed(fileUrl);
             return false;
         }
 
-        _logger.LogInformation("Starting download of '{FileUrl}' to '{DestinationPath}'", fileUrl, destinationPath);
+        LogStartingDownload(fileUrl, destinationPath);
 
         try
         {
@@ -94,11 +94,11 @@ public class FileDownloader : IFileDownloader
             {
                 if (pluginConfig.Maintenance.AllowDownloadOnUnknownDiskSpace)
                 {
-                    _logger.LogWarning("Could not determine available disk space for '{DestinationPath}'. Proceeding with download as configured.", destinationPath);
+                    LogDiskSpaceUnknownProceeding(destinationPath);
                 }
                 else
                 {
-                    _logger.LogError("Could not determine available disk space for '{DestinationPath}'. Download blocked. Enable 'Allow download on unknown disk space' in settings to bypass this check.", destinationPath);
+                    LogDiskSpaceUnknownBlocked(destinationPath);
                     return false;
                 }
             }
@@ -107,12 +107,7 @@ public class FileDownloader : IFileDownloader
                 // Check if there is enough disk space before starting the download
                 if (diskSpace < pluginConfig.Download.MinFreeDiskSpaceBytes)
                 {
-                    _logger.LogError(
-                        "Insufficient disk space to download '{FileUrl}' to '{DestinationPath}'. Required: {RequiredBytes} bytes, Available: {AvailableBytes} bytes.",
-                        fileUrl,
-                        destinationPath,
-                        pluginConfig.Download.MinFreeDiskSpaceBytes,
-                        diskSpace);
+                    LogInsufficientDiskSpace(fileUrl, destinationPath, pluginConfig.Download.MinFreeDiskSpaceBytes, diskSpace);
                     return false;
                 }
             }
@@ -130,16 +125,7 @@ public class FileDownloader : IFileDownloader
 
                 if (diskSpace < requiredSpace)
                 {
-                    _logger.LogError(
-                        "Not enough disk space to download '{FileUrl}' to '{DestinationPath}'. " +
-                        "Required: {RequiredBytes} bytes (File: {FileSize} + MinFree: {MinFree}), " +
-                        "Available: {AvailableBytes}.",
-                        fileUrl,
-                        destinationPath,
-                        requiredSpace,
-                        totalBytes,
-                        pluginConfig.Download.MinFreeDiskSpaceBytes,
-                        diskSpace);
+                    LogNotEnoughDiskSpace(fileUrl, destinationPath, requiredSpace, totalBytes, pluginConfig.Download.MinFreeDiskSpaceBytes, diskSpace);
 
                     return false;
                 }
@@ -181,22 +167,23 @@ public class FileDownloader : IFileDownloader
             }
 #pragma warning restore CA2007 // Aufruf von "ConfigureAwait" für erwarteten Task erwägen
 
-            _logger.LogInformation("Successfully downloaded '{DestinationPath}'.", destinationPath);
+            LogDownloadSucceeded(destinationPath);
+
             return true;
         }
         catch (HttpRequestException ex)
         {
-            _logger.LogError(ex, "HTTP request failed during download of '{FileUrl}': {Message}", fileUrl, ex.Message);
+            LogHttpRequestFailed(ex, fileUrl, ex.Message);
             return false;
         }
         catch (IOException ex)
         {
-            _logger.LogError(ex, "File system error during download of '{FileUrl}' to '{DestinationPath}': {Message}", fileUrl, destinationPath, ex.Message);
+            LogFileSystemErrorDownload(ex, fileUrl, destinationPath, ex.Message);
             return false;
         }
         catch (OperationCanceledException)
         {
-            _logger.LogWarning("Download of '{FileUrl}' to '{DestinationPath}' was cancelled.", fileUrl, destinationPath);
+            LogDownloadCancelled(fileUrl, destinationPath);
             // Clean up partially downloaded file
             if (File.Exists(destinationPath))
             {
@@ -207,7 +194,7 @@ public class FileDownloader : IFileDownloader
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "An unexpected error occurred during download of '{FileUrl}': {Message}", fileUrl, ex.Message);
+            LogUnexpectedDownloadError(ex, fileUrl, ex.Message);
             return false;
         }
     }
@@ -231,17 +218,18 @@ public class FileDownloader : IFileDownloader
 
             await File.WriteAllTextAsync(destinationPath, fileUrl, cancellationToken).ConfigureAwait(false);
 
-            _logger.LogInformation("Successfully created streaming URL file at '{DestinationPath}'.", destinationPath);
+            LogStreamingUrlFileCreated(destinationPath);
+
             return true;
         }
         catch (IOException ex)
         {
-            _logger.LogError(ex, "File system error during creation of streaming URL file at '{DestinationPath}': {Message}", destinationPath, ex.Message);
+            LogFileSystemErrorStreamingUrl(ex, destinationPath, ex.Message);
             return false;
         }
         catch (OperationCanceledException)
         {
-            _logger.LogWarning("Creation of streaming URL file at '{DestinationPath}' was cancelled.", destinationPath);
+            LogStreamingUrlCreationCancelled(destinationPath);
             // Clean up partially created file
             if (File.Exists(destinationPath))
             {
@@ -252,7 +240,7 @@ public class FileDownloader : IFileDownloader
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "An unexpected error occurred during creation of streaming URL file at '{DestinationPath}': {Message}", destinationPath, ex.Message);
+            LogUnexpectedStreamingUrlError(ex, destinationPath, ex.Message);
             return false;
         }
     }
@@ -300,7 +288,9 @@ public class FileDownloader : IFileDownloader
     {
         if (!Uri.TryCreate(fileUrl, UriKind.Absolute, out var uriResult))
         {
-            _logger.Log(isWarningOnly ? LogLevel.Warning : LogLevel.Error, "Invalid URL: {FileUrl}", fileUrl);
+            var logLevel = isWarningOnly ? LogLevel.Warning : LogLevel.Error;
+            LogInvalidUrl(logLevel, fileUrl);
+
             return false;
         }
 
@@ -310,7 +300,9 @@ public class FileDownloader : IFileDownloader
         var hostParts = host.Split('.');
         if (hostParts.Length < 2)
         {
-            _logger.Log(isWarningOnly ? LogLevel.Warning : LogLevel.Error, "Invalid host in URL: {Host}", host);
+            var logLevel = isWarningOnly ? LogLevel.Warning : LogLevel.Error;
+            LogInvalidHost(logLevel, host);
+
             return false;
         }
 
@@ -318,10 +310,79 @@ public class FileDownloader : IFileDownloader
 
         if (!pluginConfig.AllowedDomains.Contains(topDomain))
         {
-            _logger.Log(isWarningOnly ? LogLevel.Warning : LogLevel.Error, "Domain '{Domain}' is not allowed.", topDomain);
+            var logLevel = isWarningOnly ? LogLevel.Warning : LogLevel.Error;
+            LogDomainNotAllowed(logLevel, topDomain);
+
             return false;
         }
 
         return true;
     }
+
+    #region Logging
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "File URL cannot be null or empty.")]
+    private partial void LogFileUrlEmpty();
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Destination path cannot be null or empty for URL: {FileUrl}")]
+    private partial void LogDestinationPathEmpty(string? fileUrl);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Plugin configuration is not available.")]
+    private partial void LogPluginConfigUnavailable();
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Download from unknown domain is not allowed: {FileUrl}")]
+    private partial void LogUnknownDomainNotAllowed(string? fileUrl);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Starting download of '{FileUrl}' to '{DestinationPath}'")]
+    private partial void LogStartingDownload(string? fileUrl, string? destinationPath);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Could not determine available disk space for '{DestinationPath}'. Proceeding with download as configured.")]
+    private partial void LogDiskSpaceUnknownProceeding(string? destinationPath);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Could not determine available disk space for '{DestinationPath}'. Download blocked. Enable 'Allow download on unknown disk space' in settings to bypass this check.")]
+    private partial void LogDiskSpaceUnknownBlocked(string? destinationPath);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Insufficient disk space to download '{FileUrl}' to '{DestinationPath}'. Required: {RequiredBytes} bytes, Available: {AvailableBytes} bytes.")]
+    private partial void LogInsufficientDiskSpace(string? fileUrl, string? destinationPath, long requiredBytes, long? availableBytes);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Not enough disk space to download '{FileUrl}' to '{DestinationPath}'. Required: {RequiredBytes} bytes (File: {FileSize} + MinFree: {MinFree}), Available: {AvailableBytes}.")]
+    private partial void LogNotEnoughDiskSpace(string? fileUrl, string? destinationPath, long requiredBytes, long fileSize, long minFree, long? availableBytes);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Successfully downloaded '{DestinationPath}'.")]
+    private partial void LogDownloadSucceeded(string? destinationPath);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "HTTP request failed during download of '{FileUrl}': {Message}")]
+    private partial void LogHttpRequestFailed(Exception ex, string? fileUrl, string? message);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "File system error during download of '{FileUrl}' to '{DestinationPath}': {Message}")]
+    private partial void LogFileSystemErrorDownload(Exception ex, string? fileUrl, string? destinationPath, string? message);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Download of '{FileUrl}' to '{DestinationPath}' was cancelled.")]
+    private partial void LogDownloadCancelled(string? fileUrl, string? destinationPath);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "An unexpected error occurred during download of '{FileUrl}': {Message}")]
+    private partial void LogUnexpectedDownloadError(Exception ex, string? fileUrl, string? message);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Successfully created streaming URL file at '{DestinationPath}'.")]
+    private partial void LogStreamingUrlFileCreated(string? destinationPath);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "File system error during creation of streaming URL file at '{DestinationPath}': {Message}")]
+    private partial void LogFileSystemErrorStreamingUrl(Exception ex, string? destinationPath, string? message);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Creation of streaming URL file at '{DestinationPath}' was cancelled.")]
+    private partial void LogStreamingUrlCreationCancelled(string? destinationPath);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "An unexpected error occurred during creation of streaming URL file at '{DestinationPath}': {Message}")]
+    private partial void LogUnexpectedStreamingUrlError(Exception ex, string? destinationPath, string? message);
+
+    [LoggerMessage(Message = "Invalid URL: {FileUrl}")]
+    private partial void LogInvalidUrl(LogLevel level, string? fileUrl);
+
+    [LoggerMessage(Message = "Invalid host in URL: {Host}")]
+    private partial void LogInvalidHost(LogLevel level, string? host);
+
+    [LoggerMessage(Message = "Domain '{Domain}' is not allowed.")]
+    private partial void LogDomainNotAllowed(LogLevel level, string? domain);
+
+    #endregion
 }

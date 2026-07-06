@@ -11,7 +11,7 @@ namespace Jellyfin.Plugin.MediathekViewDL.Services.Metadata;
 /// <summary>
 /// Default implementation of <see cref="INfoService"/>.
 /// </summary>
-public class NfoService : INfoService
+public partial class NfoService : INfoService
 {
     private readonly ILogger<NfoService> _logger;
 
@@ -29,7 +29,7 @@ public class NfoService : INfoService
     {
         try
         {
-            _logger.LogInformation("Creating NFO file at {Path}", item.FilePath);
+            LogCreatingNfo(item.FilePath);
 
             string rootElementName = item.IsEpisode ? "episodedetails" : "movie";
             var root = new XElement(rootElementName);
@@ -102,7 +102,17 @@ public class NfoService : INfoService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error creating NFO file for {Title}", item.Title);
+            LogNfoCreationError(ex, item.Title);
         }
     }
+
+    #region Logging
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Creating NFO file at {Path}")]
+    private partial void LogCreatingNfo(string? path);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Error creating NFO file for {Title}")]
+    private partial void LogNfoCreationError(Exception ex, string? title);
+
+    #endregion
 }
