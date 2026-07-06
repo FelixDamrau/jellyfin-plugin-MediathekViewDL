@@ -19,3 +19,8 @@ permissions:
 jobs:
   call:
     uses: jellyfin/jellyfin-meta-plugins/.github/workflows/build.yaml@master
+    with:
+      # Override the shared workflow's stable defaults (9.0.x / net9.0) for the Jellyfin 12 / net10 port.
+      # Drop these once jellyfin-meta-plugins@master defaults to net10 after the v12 release.
+      dotnet-version: "10.0.x"
+      dotnet-target: "net10.0"
