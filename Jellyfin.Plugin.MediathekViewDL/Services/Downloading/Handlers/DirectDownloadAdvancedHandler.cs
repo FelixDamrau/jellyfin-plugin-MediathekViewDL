@@ -13,7 +13,7 @@ using DownloadStatus = Downloader.DownloadStatus;
 namespace Jellyfin.Plugin.MediathekViewDL.Services.Downloading.Handlers;
 
 /// <inheritdoc />
-public class DirectDownloadAdvancedHandler : BaseDownloadHandler
+public partial class DirectDownloadAdvancedHandler : BaseDownloadHandler
 {
     private readonly ILogger<DirectDownloadAdvancedHandler> _logger;
     private readonly IConfigurationProvider _configProvider;
@@ -58,7 +58,7 @@ public class DirectDownloadAdvancedHandler : BaseDownloadHandler
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to extract or move audio file for {DestinationPath}", item.DestinationPath);
+            LogExtractOrMoveFailed(ex, item.DestinationPath);
             return false;
         }
         finally
@@ -71,9 +71,19 @@ public class DirectDownloadAdvancedHandler : BaseDownloadHandler
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "Failed to delete temporary audio file {TempPath}", tempPath);
+                    LogTempAudioDeleteFailed(ex, tempPath);
                 }
             }
         }
     }
+
+    #region Logging
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Failed to extract or move audio file for {DestinationPath}")]
+    private partial void LogExtractOrMoveFailed(Exception ex, string? destinationPath);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Failed to delete temporary audio file {TempPath}")]
+    private partial void LogTempAudioDeleteFailed(Exception ex, string? tempPath);
+
+    #endregion
 }

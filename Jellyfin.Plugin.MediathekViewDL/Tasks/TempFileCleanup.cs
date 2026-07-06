@@ -13,7 +13,7 @@ namespace Jellyfin.Plugin.MediathekViewDL.Tasks;
 /// <summary>
 /// Deletes temporary files created by the plugin.
 /// </summary>
-public class TempFileCleanup : IScheduledTask
+public partial class TempFileCleanup : IScheduledTask
 {
     private readonly ILogger<TempFileCleanup> _logger;
     private readonly IServerApplicationPaths _appPaths;
@@ -58,11 +58,11 @@ public class TempFileCleanup : IScheduledTask
     {
         if (Plugin.Instance?.InitializationException is not null)
         {
-            _logger.LogError("Temporary file cleanup aborted because the plugin failed to initialize: {ErrorMessage}", Plugin.Instance.InitializationException.Message);
+            LogCleanupAborted(Plugin.Instance.InitializationException.Message);
             return Task.CompletedTask;
         }
 
-        _logger.LogInformation("Starting temporary file cleanup.");
+        LogCleanupStarting();
         progress.Report(0);
 
         var config = _configurationProvider.ConfigurationOrNull;
@@ -125,18 +125,18 @@ public class TempFileCleanup : IScheduledTask
                         {
                             File.Delete(file);
                             deletedCount++;
-                            _logger.LogInformation("Deleted temporary file: {File}", file);
+                            LogDeletedTempFile(file);
                         }
                         catch (Exception ex)
                         {
-                            _logger.LogWarning(ex, "Failed to delete temporary file: {File}", file);
+                            LogDeleteTempFileFailed(ex, file);
                         }
                     }
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error scanning directory for temporary files: {Dir}", dir);
+                LogScanDirectoryError(ex, dir);
             }
 
             processedDirs++;
@@ -144,7 +144,30 @@ public class TempFileCleanup : IScheduledTask
         }
 
         progress.Report(100);
-        _logger.LogInformation("Temporary file cleanup finished. Deleted {Count} files.", deletedCount);
+        LogCleanupFinished(deletedCount);
+
         return Task.CompletedTask;
     }
+
+    #region Logging
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Temporary file cleanup aborted because the plugin failed to initialize: {ErrorMessage}")]
+    private partial void LogCleanupAborted(string? errorMessage);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Starting temporary file cleanup.")]
+    private partial void LogCleanupStarting();
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Deleted temporary file: {File}")]
+    private partial void LogDeletedTempFile(string? file);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Failed to delete temporary file: {File}")]
+    private partial void LogDeleteTempFileFailed(Exception ex, string? file);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Error scanning directory for temporary files: {Dir}")]
+    private partial void LogScanDirectoryError(Exception ex, string? dir);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Temporary file cleanup finished. Deleted {Count} files.")]
+    private partial void LogCleanupFinished(int count);
+
+    #endregion
 }

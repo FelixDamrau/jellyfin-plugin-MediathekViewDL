@@ -15,7 +15,7 @@ namespace Jellyfin.Plugin.MediathekViewDL.Tasks;
 /// <summary>
 /// Scheduled task to clean up invalid .strm files.
 /// </summary>
-public class StrmCleanupTask : IScheduledTask
+public partial class StrmCleanupTask : IScheduledTask
 {
     private const long MaxStrmFileSize = 4096; // 4 KB max size for .strm files to prevent accidents
     private readonly ILogger<StrmCleanupTask> _logger;
@@ -58,24 +58,24 @@ public class StrmCleanupTask : IScheduledTask
     {
         if (Plugin.Instance?.InitializationException is not null)
         {
-            _logger.LogError(".strm cleanup task aborted because the plugin failed to initialize: {ErrorMessage}", Plugin.Instance.InitializationException.Message);
+            LogCleanupAborted(Plugin.Instance.InitializationException.Message);
             return;
         }
 
         var config = _configurationProvider.ConfigurationOrNull;
         if (config == null || !config.Maintenance.EnableStrmCleanup)
         {
-            _logger.LogInformation("Strm cleanup task is disabled in configuration or config is missing. Skipping.");
+            LogCleanupDisabled();
             return;
         }
 
-        _logger.LogInformation("Starting .strm cleanup task.");
+        LogCleanupStarting();
         progress.Report(0);
 
         var subscriptions = config.Subscriptions.Where(s => s.IsEnabled).ToList();
         if (subscriptions.Count == 0)
         {
-            _logger.LogInformation("No active subscriptions found. Task finished.");
+            LogNoSubscriptions();
             return;
         }
 
@@ -107,7 +107,7 @@ public class StrmCleanupTask : IScheduledTask
             var path = pathList[i];
             if (!Directory.Exists(path))
             {
-                _logger.LogWarning("Directory not found: {Path}", path);
+                LogDirectoryNotFound(path);
                 continue;
             }
 
@@ -116,7 +116,7 @@ public class StrmCleanupTask : IScheduledTask
                 var strmFiles = Directory.GetFiles(path, "*.strm", SearchOption.AllDirectories);
                 var totalFiles = strmFiles.Length;
 
-                _logger.LogInformation("Found {Count} .strm files in '{Path}'.", totalFiles, path);
+                LogFoundFiles(totalFiles, path);
 
                 for (int j = 0; j < totalFiles; j++)
                 {
@@ -128,7 +128,7 @@ public class StrmCleanupTask : IScheduledTask
                     // Safety check: File size
                     if (fileInfo.Length > MaxStrmFileSize)
                     {
-                        _logger.LogWarning("Skipping file '{Path}' because it is larger than {Max} bytes ({Size}).", filePath, MaxStrmFileSize, fileInfo.Length);
+                        LogSkippingLargeFile(filePath, MaxStrmFileSize, fileInfo.Length);
                         continue;
                     }
 
@@ -141,14 +141,15 @@ public class StrmCleanupTask : IScheduledTask
 
                         if (!isValid)
                         {
-                            _logger.LogInformation("Deleting invalid .strm file: '{Path}' (URL: {Url})", filePath, url);
+                            LogDeletingInvalidFile(filePath, url);
+
                             File.Delete(filePath);
                             filesDeleted++;
                         }
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogError(ex, "Error processing file '{Path}'.", filePath);
+                        LogFileProcessingError(ex, filePath);
                     }
 
                     filesProcessed++;
@@ -162,11 +163,49 @@ public class StrmCleanupTask : IScheduledTask
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error scanning directory '{Path}'.", path);
+                LogDirectoryScanError(ex, path);
             }
         }
 
-        _logger.LogInformation("Strm cleanup task finished. Processed {Processed} files, deleted {Deleted} files.", filesProcessed, filesDeleted);
+        LogCleanupFinished(filesProcessed, filesDeleted);
+
         progress.Report(100);
     }
+
+    #region Logging
+
+    [LoggerMessage(Level = LogLevel.Error, Message = ".strm cleanup task aborted because the plugin failed to initialize: {ErrorMessage}")]
+    private partial void LogCleanupAborted(string? errorMessage);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Strm cleanup task is disabled in configuration or config is missing. Skipping.")]
+    private partial void LogCleanupDisabled();
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Starting .strm cleanup task.")]
+    private partial void LogCleanupStarting();
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "No active subscriptions found. Task finished.")]
+    private partial void LogNoSubscriptions();
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Directory not found: {Path}")]
+    private partial void LogDirectoryNotFound(string? path);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Found {Count} .strm files in '{Path}'.")]
+    private partial void LogFoundFiles(int count, string? path);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Skipping file '{Path}' because it is larger than {Max} bytes ({Size}).")]
+    private partial void LogSkippingLargeFile(string? path, long max, long size);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Deleting invalid .strm file: '{Path}' (URL: {Url})")]
+    private partial void LogDeletingInvalidFile(string? path, string? url);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Error processing file '{Path}'.")]
+    private partial void LogFileProcessingError(Exception ex, string? path);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Error scanning directory '{Path}'.")]
+    private partial void LogDirectoryScanError(Exception ex, string? path);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Strm cleanup task finished. Processed {Processed} files, deleted {Deleted} files.")]
+    private partial void LogCleanupFinished(int processed, int deleted);
+
+    #endregion
 }

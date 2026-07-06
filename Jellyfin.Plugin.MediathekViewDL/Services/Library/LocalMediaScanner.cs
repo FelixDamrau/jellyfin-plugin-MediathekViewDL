@@ -10,7 +10,7 @@ namespace Jellyfin.Plugin.MediathekViewDL.Services.Library;
 /// <summary>
 /// Service to scan local directories for existing episodes.
 /// </summary>
-public class LocalMediaScanner : ILocalMediaScanner
+public partial class LocalMediaScanner : ILocalMediaScanner
 {
     private readonly ILogger<LocalMediaScanner> _logger;
     private readonly IVideoParser _videoParser;
@@ -53,13 +53,14 @@ public class LocalMediaScanner : ILocalMediaScanner
 
         if (string.IsNullOrWhiteSpace(directoryPath) || !Directory.Exists(directoryPath))
         {
-            _logger.LogDebug("Directory does not exist or is invalid: {Path}", directoryPath);
+            LogDirectoryInvalid(directoryPath);
+
             return result;
         }
 
         try
         {
-            _logger.LogInformation("Scanning local directory: {Path}", directoryPath);
+            LogScanningDirectory(directoryPath);
 
             var files = Directory.EnumerateFiles(directoryPath, "*.*", SearchOption.AllDirectories).ToList();
 
@@ -104,17 +105,32 @@ public class LocalMediaScanner : ILocalMediaScanner
                 }
             }
 
-            _logger.LogInformation(
-                "Scan complete. Found {Total} total files, {SECount} S/E episodes and {AbsCount} absolute numbered episodes.",
+            LogScanComplete(
                 result.Files.Count,
                 result.EpisodeCache.SeasonEpisodeCount,
                 result.EpisodeCache.AbsoluteEpisodeCount);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error scanning directory: {Path}", directoryPath);
+            LogScanError(ex, directoryPath);
         }
 
         return result;
     }
+
+    #region Logging
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Directory does not exist or is invalid: {Path}")]
+    private partial void LogDirectoryInvalid(string? path);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Scanning local directory: {Path}")]
+    private partial void LogScanningDirectory(string? path);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Scan complete. Found {Total} total files, {SECount} S/E episodes and {AbsCount} absolute numbered episodes.")]
+    private partial void LogScanComplete(int total, int seCount, int absCount);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Error scanning directory: {Path}")]
+    private partial void LogScanError(Exception ex, string? path);
+
+    #endregion
 }

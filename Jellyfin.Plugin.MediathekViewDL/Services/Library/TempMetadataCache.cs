@@ -11,7 +11,7 @@ namespace Jellyfin.Plugin.MediathekViewDL.Services.Library;
 /// <summary>
 /// Implementation of the temporary metadata cache.
 /// </summary>
-public class TempMetadataCache : ITempMetadataCache
+public partial class TempMetadataCache : ITempMetadataCache
 {
     private readonly ILogger<TempMetadataCache> _logger;
     private readonly IFFmpegService _ffmpegService;
@@ -47,11 +47,13 @@ public class TempMetadataCache : ITempMetadataCache
 
             if (_cache.TryGetValue(urlOrPath, out var entry) && entry.LastWrite == lastWrite)
             {
-                _logger.LogTrace("Returning cached metadata for: {Path}", urlOrPath);
+                LogReturningCachedMetadata(urlOrPath);
+
                 return entry.Info;
             }
 
-            _logger.LogDebug("Probing metadata for: {Path}", urlOrPath);
+            LogProbingMetadata(urlOrPath);
+
             var info = await _ffmpegService.GetMediaInfoAsync(urlOrPath, cancellationToken).ConfigureAwait(false);
 
             if (info != null)
@@ -63,8 +65,21 @@ public class TempMetadataCache : ITempMetadataCache
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Error getting metadata for: {Path}", urlOrPath);
+            LogMetadataError(ex, urlOrPath);
             return null;
         }
     }
+
+    #region Logging
+
+    [LoggerMessage(Level = LogLevel.Trace, Message = "Returning cached metadata for: {Path}")]
+    private partial void LogReturningCachedMetadata(string? path);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Probing metadata for: {Path}")]
+    private partial void LogProbingMetadata(string? path);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Error getting metadata for: {Path}")]
+    private partial void LogMetadataError(Exception ex, string? path);
+
+    #endregion
 }

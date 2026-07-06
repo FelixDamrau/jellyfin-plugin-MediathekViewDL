@@ -24,7 +24,7 @@ namespace Jellyfin.Plugin.MediathekViewDL.Api.External;
 /// <summary>
 /// A client for the MediathekViewWeb API.
 /// </summary>
-public class MediathekViewApiClient : IMediathekViewApiClient
+public partial class MediathekViewApiClient : IMediathekViewApiClient
 {
     private const string BaseApiUrl = "https://mediathekviewweb.de/api";
     private const string SearchEndpoint = BaseApiUrl + "/query";
@@ -120,7 +120,8 @@ public class MediathekViewApiClient : IMediathekViewApiClient
         {
             var apiQuery = apiQueryDto.ToModel();
             var json = JsonSerializer.Serialize(apiQuery);
-            _logger.LogDebug("Performing API search with payload: {Json}", json);
+            LogPerformingSearch(json);
+
             var content = new StringContent(json, Encoding.UTF8, "application/json");
 
             var response = await _resiliencePolicy.ExecuteAsync(
@@ -129,7 +130,7 @@ public class MediathekViewApiClient : IMediathekViewApiClient
 
             if (!response.IsSuccessStatusCode)
             {
-                _logger.LogError("API request failed with status code {StatusCode}", response.StatusCode);
+                LogSearchRequestFailed(response.StatusCode);
                 throw new MediathekApiException($"API request failed with status code {response.StatusCode}", response.StatusCode);
             }
 
@@ -141,7 +142,7 @@ public class MediathekViewApiClient : IMediathekViewApiClient
                 throw new MediathekParsingException("Failed to deserialize API result or result was null.");
             }
 
-            _logger.LogInformation("API search returned {Count} results", apiResult.Result.Results.Count);
+            LogSearchReturnedResults(apiResult.Result.Results.Count);
 
             var upgradeToHttps = !(_configurationProvider.ConfigurationOrNull?.Network.AllowHttp ?? false);
             var dto = apiResult.Result.ToDto(apiQueryDto, upgradeToHttps);
@@ -163,7 +164,7 @@ public class MediathekViewApiClient : IMediathekViewApiClient
                         }
                         catch (Exception ex)
                         {
-                            _logger.LogWarning(ex, "Failed to retrieve size for video URL: {Url}", v.Url);
+                            LogStreamSizeRetrievalFailed(ex, v.Url);
                             return v;
                         }
                     });
@@ -179,17 +180,17 @@ public class MediathekViewApiClient : IMediathekViewApiClient
         }
         catch (HttpRequestException ex)
         {
-            _logger.LogError(ex, "A network error occurred while calling the MediathekViewWeb API");
+            LogSearchNetworkError(ex);
             throw new MediathekConnectionException("A network error occurred while calling the MediathekViewWeb API", ex);
         }
         catch (JsonException ex)
         {
-            _logger.LogError(ex, "A parsing error occurred while deserializing the MediathekViewWeb API response");
+            LogSearchParsingError(ex);
             throw new MediathekParsingException("A parsing error occurred while deserializing the MediathekViewWeb API response", ex);
         }
         catch (Exception ex) when (ex is not MediathekException)
         {
-            _logger.LogError(ex, "An unexpected error occurred while calling the MediathekViewWeb API");
+            LogSearchUnexpectedError(ex);
             throw new MediathekApiException("An unexpected error occurred while calling the MediathekViewWeb API", ex);
         }
     }
@@ -242,7 +243,8 @@ public class MediathekViewApiClient : IMediathekViewApiClient
     {
         try
         {
-            _logger.LogDebug("Retrieving stream size for URL: {StreamUrl}", streamUrl);
+            LogRetrievingStreamSize(streamUrl);
+
             var url = StreamSizeEndpoint + Uri.EscapeDataString(streamUrl);
 
             var response = await _resiliencePolicy.ExecuteAsync(
@@ -251,7 +253,7 @@ public class MediathekViewApiClient : IMediathekViewApiClient
 
             if (!response.IsSuccessStatusCode)
             {
-                _logger.LogError("API request failed with status code {StatusCode}", response.StatusCode);
+                LogStreamSizeRequestFailed(response.StatusCode);
                 throw new MediathekApiException($"API request failed with status code {response.StatusCode}", response.StatusCode);
             }
 
@@ -259,7 +261,7 @@ public class MediathekViewApiClient : IMediathekViewApiClient
 
             if (!long.TryParse(responseStream, out var fileSize))
             {
-                _logger.LogError("Failed to parse stream size from response: {Response}", responseStream);
+                LogStreamSizeParseFailed(responseStream);
                 throw new MediathekParsingException("Failed to parse stream size from API response.");
             }
 
@@ -267,17 +269,17 @@ public class MediathekViewApiClient : IMediathekViewApiClient
         }
         catch (HttpRequestException ex)
         {
-            _logger.LogError(ex, "A network error occurred while calling the MediathekViewWeb API");
+            LogStreamSizeNetworkError(ex);
             throw new MediathekConnectionException("A network error occurred while calling the MediathekViewWeb API", ex);
         }
         catch (JsonException ex)
         {
-            _logger.LogError(ex, "A parsing error occurred while deserializing the MediathekViewWeb API response");
+            LogStreamSizeParsingError(ex);
             throw new MediathekParsingException("A parsing error occurred while deserializing the MediathekViewWeb API response", ex);
         }
         catch (Exception ex) when (ex is not MediathekException)
         {
-            _logger.LogError(ex, "An unexpected error occurred while calling the MediathekViewWeb API");
+            LogStreamSizeUnexpectedError(ex);
             throw new MediathekApiException("An unexpected error occurred while calling the MediathekViewWeb API", ex);
         }
     }
@@ -300,7 +302,7 @@ public class MediathekViewApiClient : IMediathekViewApiClient
                 return cache.Items;
             }
 
-            _logger.LogDebug("Retrieving channels from: {Url}", ChannelsEndpoint);
+            LogRetrievingChannels(ChannelsEndpoint);
 
             var response = await _resiliencePolicy.ExecuteAsync(
                 async ct => await _httpClient.GetAsync(ChannelsEndpoint, ct).ConfigureAwait(false),
@@ -308,7 +310,7 @@ public class MediathekViewApiClient : IMediathekViewApiClient
 
             if (!response.IsSuccessStatusCode)
             {
-                _logger.LogError("Channels API request failed with status code {StatusCode}", response.StatusCode);
+                LogChannelsRequestFailed(response.StatusCode);
                 throw new MediathekApiException($"Channels API request failed with status code {response.StatusCode}", response.StatusCode);
             }
 
@@ -326,7 +328,7 @@ public class MediathekViewApiClient : IMediathekViewApiClient
         }
         catch (Exception ex) when (ex is not MediathekException)
         {
-            _logger.LogError(ex, "An unexpected error occurred while calling the channels API");
+            LogChannelsUnexpectedError(ex);
             throw new MediathekApiException("An unexpected error occurred while calling the channels API", ex);
         }
         finally
@@ -353,7 +355,7 @@ public class MediathekViewApiClient : IMediathekViewApiClient
                 return cache.Items;
             }
 
-            _logger.LogDebug("Retrieving topics from: {Url}", TopicsEndpoint);
+            LogRetrievingTopics(TopicsEndpoint);
 
             var response = await _resiliencePolicy.ExecuteAsync(
                 async ct => await _httpClient.GetAsync(TopicsEndpoint, ct).ConfigureAwait(false),
@@ -361,7 +363,7 @@ public class MediathekViewApiClient : IMediathekViewApiClient
 
             if (!response.IsSuccessStatusCode)
             {
-                _logger.LogError("Topics API request failed with status code {StatusCode}", response.StatusCode);
+                LogTopicsRequestFailed(response.StatusCode);
                 throw new MediathekApiException($"Topics API request failed with status code {response.StatusCode}", response.StatusCode);
             }
 
@@ -379,7 +381,7 @@ public class MediathekViewApiClient : IMediathekViewApiClient
         }
         catch (Exception ex) when (ex is not MediathekException)
         {
-            _logger.LogError(ex, "An unexpected error occurred while calling the topics API");
+            LogTopicsUnexpectedError(ex);
             throw new MediathekApiException("An unexpected error occurred while calling the topics API", ex);
         }
         finally
@@ -393,7 +395,7 @@ public class MediathekViewApiClient : IMediathekViewApiClient
     {
         try
         {
-            _logger.LogDebug("Retrieving Zapp channels from: {Url}", ZappChannelsEndpoint);
+            LogRetrievingZappChannels(ZappChannelsEndpoint);
 
             var response = await _resiliencePolicy.ExecuteAsync(
                 async ct => await _httpClient.GetAsync(ZappChannelsEndpoint, ct).ConfigureAwait(false),
@@ -401,7 +403,7 @@ public class MediathekViewApiClient : IMediathekViewApiClient
 
             if (!response.IsSuccessStatusCode)
             {
-                _logger.LogError("Zapp API request failed with status code {StatusCode}", response.StatusCode);
+                LogZappChannelsRequestFailed(response.StatusCode);
                 throw new MediathekApiException($"Zapp API request failed with status code {response.StatusCode}", response.StatusCode);
             }
 
@@ -422,7 +424,7 @@ public class MediathekViewApiClient : IMediathekViewApiClient
         }
         catch (Exception ex) when (ex is not MediathekException)
         {
-            _logger.LogError(ex, "An unexpected error occurred while calling the Zapp API for channels");
+            LogZappChannelsUnexpectedError(ex);
             throw new MediathekApiException("An unexpected error occurred while calling the Zapp API for channels", ex);
         }
     }
@@ -433,7 +435,7 @@ public class MediathekViewApiClient : IMediathekViewApiClient
         try
         {
             var url = ZappShowsEndpoint + channelId;
-            _logger.LogDebug("Retrieving current Zapp show for channel {ChannelId} from: {Url}", channelId, url);
+            LogRetrievingZappShow(channelId, url);
 
             var response = await _resiliencePolicy.ExecuteAsync(
                 async ct => await _httpClient.GetAsync(url, ct).ConfigureAwait(false),
@@ -441,7 +443,7 @@ public class MediathekViewApiClient : IMediathekViewApiClient
 
             if (!response.IsSuccessStatusCode)
             {
-                _logger.LogError("Zapp API request failed with status code {StatusCode}", response.StatusCode);
+                LogZappShowRequestFailed(response.StatusCode);
                 throw new MediathekApiException($"Zapp API request failed with status code {response.StatusCode}", response.StatusCode);
             }
 
@@ -464,7 +466,7 @@ public class MediathekViewApiClient : IMediathekViewApiClient
         }
         catch (Exception ex) when (ex is not MediathekException)
         {
-            _logger.LogError(ex, "An unexpected error occurred while calling the Zapp API for show info");
+            LogZappShowUnexpectedError(ex);
             throw new MediathekApiException("An unexpected error occurred while calling the Zapp API for show info", ex);
         }
     }
@@ -478,6 +480,85 @@ public class MediathekViewApiClient : IMediathekViewApiClient
 
         return null;
     }
+
+    #region Logging
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Performing API search with payload: {Json}")]
+    private partial void LogPerformingSearch(string? json);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "API request failed with status code {StatusCode}")]
+    private partial void LogSearchRequestFailed(System.Net.HttpStatusCode statusCode);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "API search returned {Count} results")]
+    private partial void LogSearchReturnedResults(int count);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Failed to retrieve size for video URL: {Url}")]
+    private partial void LogStreamSizeRetrievalFailed(Exception ex, string? url);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "A network error occurred while calling the MediathekViewWeb API")]
+    private partial void LogSearchNetworkError(Exception ex);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "A parsing error occurred while deserializing the MediathekViewWeb API response")]
+    private partial void LogSearchParsingError(Exception ex);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "An unexpected error occurred while calling the MediathekViewWeb API")]
+    private partial void LogSearchUnexpectedError(Exception ex);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Retrieving stream size for URL: {StreamUrl}")]
+    private partial void LogRetrievingStreamSize(string? streamUrl);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "API request failed with status code {StatusCode}")]
+    private partial void LogStreamSizeRequestFailed(System.Net.HttpStatusCode statusCode);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Failed to parse stream size from response: {Response}")]
+    private partial void LogStreamSizeParseFailed(string? response);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "A network error occurred while calling the MediathekViewWeb API")]
+    private partial void LogStreamSizeNetworkError(Exception ex);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "A parsing error occurred while deserializing the MediathekViewWeb API response")]
+    private partial void LogStreamSizeParsingError(Exception ex);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "An unexpected error occurred while calling the MediathekViewWeb API")]
+    private partial void LogStreamSizeUnexpectedError(Exception ex);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Retrieving channels from: {Url}")]
+    private partial void LogRetrievingChannels(string? url);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Channels API request failed with status code {StatusCode}")]
+    private partial void LogChannelsRequestFailed(System.Net.HttpStatusCode statusCode);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "An unexpected error occurred while calling the channels API")]
+    private partial void LogChannelsUnexpectedError(Exception ex);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Retrieving topics from: {Url}")]
+    private partial void LogRetrievingTopics(string? url);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Topics API request failed with status code {StatusCode}")]
+    private partial void LogTopicsRequestFailed(System.Net.HttpStatusCode statusCode);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "An unexpected error occurred while calling the topics API")]
+    private partial void LogTopicsUnexpectedError(Exception ex);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Retrieving Zapp channels from: {Url}")]
+    private partial void LogRetrievingZappChannels(string? url);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Zapp API request failed with status code {StatusCode}")]
+    private partial void LogZappChannelsRequestFailed(System.Net.HttpStatusCode statusCode);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "An unexpected error occurred while calling the Zapp API for channels")]
+    private partial void LogZappChannelsUnexpectedError(Exception ex);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Retrieving current Zapp show for channel {ChannelId} from: {Url}")]
+    private partial void LogRetrievingZappShow(string? channelId, string? url);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Zapp API request failed with status code {StatusCode}")]
+    private partial void LogZappShowRequestFailed(System.Net.HttpStatusCode statusCode);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "An unexpected error occurred while calling the Zapp API for show info")]
+    private partial void LogZappShowUnexpectedError(Exception ex);
+
+    #endregion
 
     private sealed record CacheEntry(IReadOnlyCollection<string> Items, DateTimeOffset Expiry);
 }

@@ -29,7 +29,7 @@ namespace Jellyfin.Plugin.MediathekViewDL.Api;
 [ApiController]
 [Route("MediathekViewDL")]
 [Authorize(Policy = Policies.RequiresElevation)]
-public class MediathekViewDlApiService : ControllerBase
+public partial class MediathekViewDlApiService : ControllerBase
 {
     private readonly IMediathekViewApiClient _apiClient;
     private readonly ILogger<MediathekViewDlApiService> _logger;
@@ -122,7 +122,7 @@ public class MediathekViewDlApiService : ControllerBase
             return BadRequest(new ApiErrorDto(ApiErrorId.InvalidSubscription, "Abonnement-Konfiguration ist erforderlich."));
         }
 
-        _logger.LogInformation("Testing subscription '{Name}' with {QueryCount} queries.", subscription.Name, subscription.Search.Criteria.Count);
+        LogTestingSubscription(subscription.Name, subscription.Search.Criteria.Count);
 
         var results = new List<ResultItemDto>();
         await foreach (var item in _subscriptionProcessor.TestSubscriptionAsync(subscription, CancellationToken.None).ConfigureAwait(false))
@@ -146,7 +146,7 @@ public class MediathekViewDlApiService : ControllerBase
             var parsed = _videoParser.ParseVideoInfo(item.Topic, item.Title);
             if (parsed == null)
             {
-                _logger.LogError("Could not parse the Item: {Item}", item);
+                LogCouldNotParseItem(item);
                 return BadRequest(new ApiErrorDto(ApiErrorId.ParseError, "Das Element konnte nicht analysiert werden."));
             }
 
@@ -154,7 +154,7 @@ public class MediathekViewDlApiService : ControllerBase
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Could not parse the Item: {Item}", item);
+            LogCouldNotParseItemException(ex, item);
             return BadRequest(new ApiErrorDto(ApiErrorId.ParseError, "Das Element konnte nicht analysiert werden."));
         }
     }
@@ -182,7 +182,7 @@ public class MediathekViewDlApiService : ControllerBase
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Could not create RecommendedPaths for: {VideoInfo}", videoInfo);
+            LogCouldNotCreateRecommendedPaths(ex, videoInfo);
             return BadRequest(new ApiErrorDto(ApiErrorId.InvalidPath, "Empfohlene Pfade konnten nicht erstellt werden."));
         }
     }
@@ -203,7 +203,7 @@ public class MediathekViewDlApiService : ControllerBase
         var config = _configurationProvider.ConfigurationOrNull;
         if (config == null)
         {
-            _logger.LogError("Plugin configuration is not available. Cannot start manual download.");
+            LogConfigNotAvailableManualDownload();
             return StatusCode(500, new ApiErrorDto(ApiErrorId.ConfigurationNotAvailable, "Plugin-Konfiguration ist nicht verfügbar."));
         }
 
@@ -217,7 +217,7 @@ public class MediathekViewDlApiService : ControllerBase
         var videoInfo = _videoParser.ParseVideoInfo(item.Topic, item.Title);
         if (videoInfo == null)
         {
-            _logger.LogError("Could not parse video info for item: {Title}", item.Title);
+            LogCouldNotParseVideoInfo(item.Title);
             return BadRequest(new ApiErrorDto(ApiErrorId.ParseError, "Video-Informationen konnten nicht analysiert werden."));
         }
 
@@ -226,17 +226,17 @@ public class MediathekViewDlApiService : ControllerBase
 
         if (!paths.IsValid)
         {
-            _logger.LogError("Could not generate download paths for item: {Title}", item.Title);
+            LogCouldNotGenerateDownloadPaths(item.Title);
             return BadRequest(new ApiErrorDto(ApiErrorId.InvalidPath, "Download-Pfade konnten nicht generiert werden."));
         }
 
         if (FileDownloader.GetDiskSpace(paths.DirectoryPath) < config.Download.MinFreeDiskSpaceBytes)
         {
-            _logger.LogError("Not enough free disk space to start download for item: {Title} at {Path}", item.Title, paths.DirectoryPath);
+            LogNotEnoughDiskSpace(item.Title, paths.DirectoryPath);
             return BadRequest(new ApiErrorDto(ApiErrorId.InsufficientDiskSpace, "Nicht genügend freier Speicherplatz, um den Download zu starten."));
         }
 
-        _logger.LogInformation("Manual download requested for item: {Title}", item.Title);
+        LogManualDownloadRequested(item.Title);
 
         var job = new DownloadJob { ItemId = item.Id, Title = item.Title, ItemInfo = videoInfo };
 
@@ -268,7 +268,7 @@ public class MediathekViewDlApiService : ControllerBase
         var config = _configurationProvider.ConfigurationOrNull;
         if (config == null)
         {
-            _logger.LogError("Plugin configuration is not available. Cannot start advanced download.");
+            LogConfigNotAvailableAdvancedDownload();
             return StatusCode(500, new ApiErrorDto(ApiErrorId.ConfigurationNotAvailable, "Plugin-Konfiguration ist nicht verfügbar."));
         }
 
@@ -293,7 +293,7 @@ public class MediathekViewDlApiService : ControllerBase
         // Security check: Validate path traversal
         if (!_fileNameBuilder.IsPathSafe(options.DownloadPath))
         {
-            _logger.LogWarning("Blocked advanced download request to unsafe path: {Path}", options.DownloadPath);
+            LogBlockedUnsafePath(options.DownloadPath);
             return BadRequest(new ApiErrorDto(ApiErrorId.UnsafePath, "Der angegebene Download-Pfad ist nicht zulässig. Bitte verwenden Sie einen Pfad innerhalb Ihrer Bibliothek oder der konfigurierten Download-Verzeichnisse."));
         }
 
@@ -306,7 +306,7 @@ public class MediathekViewDlApiService : ControllerBase
         var videoInfo = _videoParser.ParseVideoInfo(item.Topic, item.Title);
         if (videoInfo == null)
         {
-            _logger.LogError("Could not parse video info for item: {Title}", item.Title);
+            LogCouldNotParseVideoInfoAdvanced(item.Title);
             return BadRequest(new ApiErrorDto(ApiErrorId.ParseError, "Video-Informationen konnten nicht analysiert werden."));
         }
 
@@ -314,11 +314,11 @@ public class MediathekViewDlApiService : ControllerBase
         if (FileDownloader.GetDiskSpace(options.DownloadPath) < config.Download.MinFreeDiskSpaceBytes)
 #pragma warning restore CA3003
         {
-            _logger.LogError("Not enough free disk space to start advanced download for item: {Title} at {Path}", item.Title, options.DownloadPath);
+            LogNotEnoughDiskSpaceAdvanced(item.Title, options.DownloadPath);
             return BadRequest(new ApiErrorDto(ApiErrorId.InsufficientDiskSpace, "Nicht genügend freier Speicherplatz, um den Download zu starten."));
         }
 
-        _logger.LogInformation("Advanced download requested for item: {Title} to path: {Path} with filename: {FileName}", item.Title, options.DownloadPath, options.FileName);
+        LogAdvancedDownloadRequested(item.Title, options.DownloadPath, options.FileName);
 
         var videoDestinationPath = Path.Combine(options.DownloadPath, _fileNameBuilder.SanitizeFileName(options.FileName));
         var job = new DownloadJob { ItemId = item.Id, Title = item.Title, ItemInfo = videoInfo };
@@ -366,7 +366,8 @@ public class MediathekViewDlApiService : ControllerBase
         subscription!.LastDownloadedTimestamp = null; // Also reset the timestamp for consistency
         _configurationProvider.TryUpdate(config!);
 
-        _logger.LogInformation("Processed items list reset for subscription '{SubscriptionName}' (ID: {SubscriptionId}).", subscription.Name, subscriptionId);
+        LogProcessedItemsReset(subscription.Name, subscriptionId);
+
         return Ok($"Liste der verarbeiteten Elemente für Abonnement '{subscription.Name}' wurde zurückgesetzt.");
     }
 
@@ -450,4 +451,53 @@ public class MediathekViewDlApiService : ControllerBase
 
         return null;
     }
+
+    #region Logging
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Testing subscription '{Name}' with {QueryCount} queries.")]
+    private partial void LogTestingSubscription(string? name, int queryCount);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Could not parse the Item: {Item}")]
+    private partial void LogCouldNotParseItem(ResultItemDto? item);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Could not parse the Item: {Item}")]
+    private partial void LogCouldNotParseItemException(Exception ex, ResultItemDto? item);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Could not create RecommendedPaths for: {VideoInfo}")]
+    private partial void LogCouldNotCreateRecommendedPaths(Exception ex, VideoInfo? videoInfo);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Plugin configuration is not available. Cannot start manual download.")]
+    private partial void LogConfigNotAvailableManualDownload();
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Could not parse video info for item: {Title}")]
+    private partial void LogCouldNotParseVideoInfo(string? title);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Could not generate download paths for item: {Title}")]
+    private partial void LogCouldNotGenerateDownloadPaths(string? title);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Not enough free disk space to start download for item: {Title} at {Path}")]
+    private partial void LogNotEnoughDiskSpace(string? title, string? path);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Manual download requested for item: {Title}")]
+    private partial void LogManualDownloadRequested(string? title);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Plugin configuration is not available. Cannot start advanced download.")]
+    private partial void LogConfigNotAvailableAdvancedDownload();
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Blocked advanced download request to unsafe path: {Path}")]
+    private partial void LogBlockedUnsafePath(string? path);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Could not parse video info for item: {Title}")]
+    private partial void LogCouldNotParseVideoInfoAdvanced(string? title);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Not enough free disk space to start advanced download for item: {Title} at {Path}")]
+    private partial void LogNotEnoughDiskSpaceAdvanced(string? title, string? path);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Advanced download requested for item: {Title} to path: {Path} with filename: {FileName}")]
+    private partial void LogAdvancedDownloadRequested(string? title, string? path, string? fileName);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Processed items list reset for subscription '{SubscriptionName}' (ID: {SubscriptionId}).")]
+    private partial void LogProcessedItemsReset(string? subscriptionName, Guid subscriptionId);
+
+    #endregion
 }

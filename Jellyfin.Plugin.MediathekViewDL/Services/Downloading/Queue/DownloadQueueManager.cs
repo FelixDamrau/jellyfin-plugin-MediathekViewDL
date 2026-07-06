@@ -17,7 +17,7 @@ namespace Jellyfin.Plugin.MediathekViewDL.Services.Downloading.Queue;
 /// <summary>
 /// Manages the download queue and execution.
 /// </summary>
-public sealed class DownloadQueueManager : IDownloadQueueManager, IDisposable
+public sealed partial class DownloadQueueManager : IDownloadQueueManager, IDisposable
 {
     private readonly ConcurrentDictionary<Guid, ActiveDownload> _activeDownloads = new();
     private readonly Channel<ActiveDownload> _queueChannel;
@@ -57,11 +57,11 @@ public sealed class DownloadQueueManager : IDownloadQueueManager, IDisposable
         {
             if (_queueChannel.Writer.TryWrite(activeDownload))
             {
-                _logger.LogInformation("Queued download job '{Title}' (ID: {Id}).", job.Title, activeDownload.Id);
+                LogQueuedJob(job.Title, activeDownload.Id);
             }
             else
             {
-                _logger.LogError("Failed to write download job '{Title}' (ID: {Id}) to channel.", job.Title, activeDownload.Id);
+                LogWriteFailed(job.Title, activeDownload.Id);
                 activeDownload.Status = DownloadStatus.Failed;
                 activeDownload.ErrorMessage = "Internal error: Queue full or closed.";
             }
@@ -98,7 +98,7 @@ public sealed class DownloadQueueManager : IDownloadQueueManager, IDisposable
 
             download.Cts.Cancel();
             download.Status = DownloadStatus.Cancelled;
-            _logger.LogInformation("Cancelled download job '{Title}' (ID: {Id}).", download.Job.Title, id);
+            LogCancelledJob(download.Job.Title, id);
         }
         else
         {
@@ -109,7 +109,7 @@ public sealed class DownloadQueueManager : IDownloadQueueManager, IDisposable
     /// <inheritdoc />
     public void CancelAllJobs()
     {
-        _logger.LogInformation("Cancellation of all download jobs requested.");
+        LogCancelAllRequested();
         foreach (var download in _activeDownloads.Values)
         {
             if (download.Status == DownloadStatus.Queued ||
@@ -123,7 +123,7 @@ public sealed class DownloadQueueManager : IDownloadQueueManager, IDisposable
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Error cancelling job '{Title}' (ID: {Id}).", download.Job.Title, download.Id);
+                    LogCancelJobError(ex, download.Job.Title, download.Id);
                 }
             }
         }
@@ -132,7 +132,7 @@ public sealed class DownloadQueueManager : IDownloadQueueManager, IDisposable
     /// <inheritdoc />
     public void ClearInactiveJobs()
     {
-        _logger.LogInformation("Clearing all inactive download jobs from list.");
+        LogClearingInactive();
         var keysToRemove = _activeDownloads
             .Where(kvp => kvp.Value.Status == DownloadStatus.Finished ||
                            kvp.Value.Status == DownloadStatus.Failed ||
@@ -193,7 +193,7 @@ public sealed class DownloadQueueManager : IDownloadQueueManager, IDisposable
                             }
                             catch (Exception ex)
                             {
-                                _logger.LogError(ex, "Error executing download job '{Title}' (ID: {Id}).", download.Job.Title, download.Id);
+                                LogExecuteJobError(ex, download.Job.Title, download.Id);
                             }
                             finally
                             {
@@ -210,14 +210,14 @@ public sealed class DownloadQueueManager : IDownloadQueueManager, IDisposable
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error in download queue loop.");
+            LogQueueLoopError(ex);
         }
     }
 
     private async Task ExecuteDownloadAsync(ActiveDownload download)
     {
         download.Status = DownloadStatus.Downloading;
-        _logger.LogInformation("Starting execution of download job '{Title}' (ID: {Id}).", download.Job.Title, download.Id);
+        LogStartingExecution(download.Job.Title, download.Id);
 
         using var scope = _scopeFactory.CreateScope();
         var downloadManager = scope.ServiceProvider.GetRequiredService<IDownloadManager>();
@@ -256,7 +256,7 @@ public sealed class DownloadQueueManager : IDownloadQueueManager, IDisposable
 
                 if (_configurationProvider.ConfigurationOrNull?.Download.ScanLibraryAfterDownload == true && _activeDownloads.Values.All(d => d.Status != DownloadStatus.Queued))
                 {
-                    _logger.LogInformation("Triggering library scan (all downloads finished).");
+                    LogTriggeringScan();
                     libraryManager.QueueLibraryScan();
                 }
             }
@@ -274,7 +274,44 @@ public sealed class DownloadQueueManager : IDownloadQueueManager, IDisposable
         {
             download.Status = DownloadStatus.Failed;
             download.ErrorMessage = ex.Message;
-            _logger.LogError(ex, "Exception during download job '{Title}' (ID: {Id}).", download.Job.Title, download.Id);
+            LogDownloadJobException(ex, download.Job.Title, download.Id);
         }
     }
+
+    #region Logging
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Queued download job '{Title}' (ID: {Id}).")]
+    private partial void LogQueuedJob(string? title, Guid id);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Failed to write download job '{Title}' (ID: {Id}) to channel.")]
+    private partial void LogWriteFailed(string? title, Guid id);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Cancelled download job '{Title}' (ID: {Id}).")]
+    private partial void LogCancelledJob(string? title, Guid id);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Cancellation of all download jobs requested.")]
+    private partial void LogCancelAllRequested();
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Error cancelling job '{Title}' (ID: {Id}).")]
+    private partial void LogCancelJobError(Exception ex, string? title, Guid id);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Clearing all inactive download jobs from list.")]
+    private partial void LogClearingInactive();
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Error executing download job '{Title}' (ID: {Id}).")]
+    private partial void LogExecuteJobError(Exception ex, string? title, Guid id);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Error in download queue loop.")]
+    private partial void LogQueueLoopError(Exception ex);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Starting execution of download job '{Title}' (ID: {Id}).")]
+    private partial void LogStartingExecution(string? title, Guid id);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Triggering library scan (all downloads finished).")]
+    private partial void LogTriggeringScan();
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Exception during download job '{Title}' (ID: {Id}).")]
+    private partial void LogDownloadJobException(Exception ex, string? title, Guid id);
+
+    #endregion
 }

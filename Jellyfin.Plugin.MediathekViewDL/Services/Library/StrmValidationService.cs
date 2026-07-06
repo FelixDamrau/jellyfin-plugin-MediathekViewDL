@@ -12,7 +12,7 @@ namespace Jellyfin.Plugin.MediathekViewDL.Services.Library;
 /// <summary>
 /// Service for validating streaming URLs in .strm files.
 /// </summary>
-public class StrmValidationService : IStrmValidationService
+public partial class StrmValidationService : IStrmValidationService
 {
     private readonly ILogger<StrmValidationService> _logger;
     private readonly IHttpClientFactory _httpClientFactory;
@@ -93,7 +93,8 @@ public class StrmValidationService : IStrmValidationService
         // If HEAD fails (some servers might not support it), try a Range request for the first byte
         if (response.StatusCode == HttpStatusCode.MethodNotAllowed)
         {
-            _logger.LogDebug("HEAD request not allowed for {Url}, trying GET with Range header.", url);
+            LogHeadNotAllowed(url);
+
             using var getRequest = new HttpRequestMessage(HttpMethod.Get, url);
             getRequest.Headers.Range = new System.Net.Http.Headers.RangeHeaderValue(0, 0);
             using var getResponse = await client.SendAsync(getRequest, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
@@ -105,7 +106,8 @@ public class StrmValidationService : IStrmValidationService
 
             if (getResponse.StatusCode == HttpStatusCode.NotFound || getResponse.StatusCode == HttpStatusCode.Gone)
             {
-                _logger.LogInformation("URL validation confirmed invalid (404/410) for {Url}. Status Code: {StatusCode}", url, getResponse.StatusCode);
+                LogUrlValidationInvalid(url, getResponse.StatusCode);
+
                 return false;
             }
 
@@ -114,10 +116,24 @@ public class StrmValidationService : IStrmValidationService
 
         if (response.StatusCode == HttpStatusCode.NotFound || response.StatusCode == HttpStatusCode.Gone)
         {
-            _logger.LogInformation("URL validation confirmed invalid (404/410) for {Url}. Status Code: {StatusCode}", url, response.StatusCode);
+            LogUrlValidationInvalidHead(url, response.StatusCode);
+
             return false;
         }
 
         throw new HttpRequestException($"Validation failed with status code {response.StatusCode} for URL {url}");
     }
+
+    #region Logging
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "HEAD request not allowed for {Url}, trying GET with Range header.")]
+    private partial void LogHeadNotAllowed(string? url);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "URL validation confirmed invalid (404/410) for {Url}. Status Code: {StatusCode}")]
+    private partial void LogUrlValidationInvalid(string? url, HttpStatusCode statusCode);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "URL validation confirmed invalid (404/410) for {Url}. Status Code: {StatusCode}")]
+    private partial void LogUrlValidationInvalidHead(string? url, HttpStatusCode statusCode);
+
+    #endregion
 }

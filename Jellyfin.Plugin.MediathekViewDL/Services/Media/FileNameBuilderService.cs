@@ -13,7 +13,7 @@ namespace Jellyfin.Plugin.MediathekViewDL.Services.Media;
 /// <summary>
 /// Service for handling file name building operations.
 /// </summary>
-public class FileNameBuilderService : IFileNameBuilderService
+public partial class FileNameBuilderService : IFileNameBuilderService
 {
     private readonly ILogger<FileNameBuilderService> _logger;
     private readonly IConfigurationProvider _configurationProvider;
@@ -175,7 +175,7 @@ public class FileNameBuilderService : IFileNameBuilderService
                 fileNamePart += ".mka";
                 break;
             default:
-                _logger.LogError("Unknown file type '{TargetType}' for File '{FileName}'.", targetType, videoInfo.Title);
+                LogUnknownFileType(targetType, videoInfo.Title);
                 break;
         }
 
@@ -196,7 +196,7 @@ public class FileNameBuilderService : IFileNameBuilderService
 
         if (config == null)
         {
-            _logger.LogWarning("Plugin configuration not avilable. Cant build config paths.");
+            LogConfigNotAvailable();
             return string.Empty;
         }
 
@@ -208,7 +208,7 @@ public class FileNameBuilderService : IFileNameBuilderService
             string subscriptionPath = SanitizeDirectoryName(subscription.Name);
             if (string.IsNullOrWhiteSpace(defaultPath))
             {
-                _logger.LogError("No default download path configured for {Context} {Type}. Cannot build directory name for subscription '{SubscriptionName}' and item '{Title}'.", context, videoInfo.IsShow ? "Show" : "Movie", subscription.Name, videoInfo.Title);
+                LogNoDefaultDownloadPath(context, videoInfo.IsShow ? "Show" : "Movie", subscription.Name, videoInfo.Title);
                 return string.Empty;
             }
 
@@ -228,7 +228,7 @@ public class FileNameBuilderService : IFileNameBuilderService
 
         if (string.IsNullOrWhiteSpace(targetPath))
         {
-            _logger.LogError("No download path configured for subscription '{SubscriptionName}' or globally. Skipping item '{Title}'.", subscription.Name, videoInfo.Title);
+            LogNoDownloadPath(subscription.Name, videoInfo.Title);
             return string.Empty;
         }
 
@@ -341,7 +341,7 @@ public class FileNameBuilderService : IFileNameBuilderService
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogWarning(ex, "Error adding config path {Path} to allowed paths.", p);
+                        LogErrorAddingConfigPath(ex, p);
                     }
                 }
             }
@@ -378,8 +378,30 @@ public class FileNameBuilderService : IFileNameBuilderService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error validating path safety for: {Path}", path);
+            LogPathSafetyValidationError(ex, path);
             return false;
         }
     }
+
+    #region Logging
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Unknown file type '{TargetType}' for File '{FileName}'.")]
+    private partial void LogUnknownFileType(FileType targetType, string? fileName);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Plugin configuration not avilable. Cant build config paths.")]
+    private partial void LogConfigNotAvailable();
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "No default download path configured for {Context} {Type}. Cannot build directory name for subscription '{SubscriptionName}' and item '{Title}'.")]
+    private partial void LogNoDefaultDownloadPath(DownloadContext context, string? type, string? subscriptionName, string? title);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "No download path configured for subscription '{SubscriptionName}' or globally. Skipping item '{Title}'.")]
+    private partial void LogNoDownloadPath(string? subscriptionName, string? title);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Error adding config path {Path} to allowed paths.")]
+    private partial void LogErrorAddingConfigPath(Exception ex, string? path);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Error validating path safety for: {Path}")]
+    private partial void LogPathSafetyValidationError(Exception ex, string? path);
+
+    #endregion
 }

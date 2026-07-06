@@ -19,7 +19,7 @@ namespace Jellyfin.Plugin.MediathekViewDL.Services.Downloading.Clients;
 /// <summary>
 /// Service for handling ffmpeg operations.
 /// </summary>
-public class FFmpegService : IFFmpegService
+public partial class FFmpegService : IFFmpegService
 {
     private readonly ILogger<FFmpegService> _logger;
     private readonly IMediaEncoder _mediaEncoder;
@@ -44,10 +44,11 @@ public class FFmpegService : IFFmpegService
     /// <inheritdoc />
     public async Task<bool> ExtractAudioAsync(string tempVideoPath, string outputAudioPath, string languageCode, IProgress<double> progress, CancellationToken cancellationToken)
     {
-        _logger.LogInformation("Extracting audio from '{Input}' to '{Output}' with language '{Lang}'", tempVideoPath, outputAudioPath, languageCode);
+        LogExtractingAudio(tempVideoPath, outputAudioPath, languageCode);
+
         if (string.IsNullOrWhiteSpace(_mediaEncoder.EncoderPath))
         {
-            _logger.LogError("FFmpeg encoder path is not configured.");
+            LogEncoderPathNotConfigured();
             return false;
         }
 
@@ -66,17 +67,17 @@ public class FFmpegService : IFFmpegService
         {
             if (!await _strmValidationService.ValidateUrlAsync(videoUrl, cancellationToken).ConfigureAwait(false))
             {
-                _logger.LogError("URL validation failed for '{Url}'", videoUrl);
+                LogUrlValidationFailed(videoUrl);
                 return false;
             }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "URL validation threw exception for '{Url}'", videoUrl);
+            LogUrlValidationException(ex, videoUrl);
             return false;
         }
 
-        _logger.LogInformation("Extracting audio from '{Input}' to '{Output}' with language '{Lang}'", videoUrl, outputAudioPath, languageCode);
+        LogExtractingAudioFromWeb(videoUrl, outputAudioPath, languageCode);
 
         // Build ffmpeg arguments
         var args = new List<string>
@@ -122,7 +123,7 @@ public class FFmpegService : IFFmpegService
     {
         if (string.IsNullOrWhiteSpace(urlOrPath))
         {
-            _logger.LogError("URL or path cannot be null or empty.");
+            LogUrlOrPathEmpty();
             return null;
         }
 
@@ -132,16 +133,16 @@ public class FFmpegService : IFFmpegService
             try
             {
                 actualUrlOrPath = (await File.ReadAllTextAsync(urlOrPath, cancellationToken).ConfigureAwait(false)).Trim();
-                _logger.LogDebug("Read URL from .strm file: {Url}", actualUrlOrPath);
+                LogReadUrlFromStrm(actualUrlOrPath);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to read .strm file at {Path}", urlOrPath);
+                LogStrmReadError(ex, urlOrPath);
                 return null;
             }
         }
 
-        _logger.LogDebug("Probing media info for '{UrlOrPath}' ", actualUrlOrPath);
+        LogProbingMediaInfo(actualUrlOrPath);
 
         // Security check: If it's not a verified local file path, it must be a valid URL
         if (!File.Exists(actualUrlOrPath))
@@ -150,13 +151,13 @@ public class FFmpegService : IFFmpegService
             {
                 if (!await _strmValidationService.ValidateUrlAsync(actualUrlOrPath, cancellationToken).ConfigureAwait(false))
                 {
-                    _logger.LogError("Validation failed for '{Input}' (not a local file and URL validation failed)", actualUrlOrPath);
+                    LogValidationFailed(actualUrlOrPath);
                     return null;
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Validation threw exception for '{Input}'", actualUrlOrPath);
+                LogValidationException(ex, actualUrlOrPath);
                 return null;
             }
         }
@@ -175,13 +176,13 @@ public class FFmpegService : IFFmpegService
 
         if (res.ExitCode != 0)
         {
-            _logger.LogWarning("ffprobe failed for '{UrlOrPath}' with exit code {ExitCode}. Error: {Error}", actualUrlOrPath, res.ExitCode, res.Error);
+            LogFfprobeFailed(actualUrlOrPath, res.ExitCode, res.Error);
             return null;
         }
 
         if (string.IsNullOrWhiteSpace(res.Output))
         {
-            _logger.LogWarning("ffprobe returned empty output for '{UrlOrPath}'.", actualUrlOrPath);
+            LogFfprobeEmptyOutput(actualUrlOrPath);
             return null;
         }
 
@@ -189,7 +190,7 @@ public class FFmpegService : IFFmpegService
 
         if (result?.Streams == null || result.Streams.Count == 0)
         {
-            _logger.LogWarning("No streams found for '{UrlOrPath}' or JSON parsing failed.", actualUrlOrPath);
+            LogNoStreamsFound(actualUrlOrPath);
             return null;
         }
 
@@ -232,7 +233,7 @@ public class FFmpegService : IFFmpegService
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Could not get file size for local file '{UrlOrPath}'.", urlOrPath);
+                LogFileSizeError(ex, urlOrPath);
             }
         }
 
@@ -253,17 +254,17 @@ public class FFmpegService : IFFmpegService
         {
             if (!await _strmValidationService.ValidateUrlAsync(url, cancellationToken).ConfigureAwait(false))
             {
-                _logger.LogError("URL validation failed for '{Url}'", url);
+                LogDownloadUrlValidationFailed(url);
                 return false;
             }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "URL validation threw exception for '{Url}'", url);
+            LogDownloadUrlValidationException(ex, url);
             return false;
         }
 
-        _logger.LogInformation("Downloading M3U8 stream from '{Url}' to '{Output}'", url, outputPath);
+        LogDownloadingM3U8(url, outputPath);
 
         // Build ffmpeg arguments for downloading HLS stream
         // -protocol_whitelist file,http,https,tcp,tls: Allow necessary protocols
@@ -294,7 +295,7 @@ public class FFmpegService : IFFmpegService
 
         if (string.IsNullOrWhiteSpace(executablePath))
         {
-            _logger.LogError("{ToolName} path is not configured.", toolName);
+            LogToolPathNotConfigured(toolName);
             return (-1, string.Empty, $"{toolName} path is not configured.");
         }
 
@@ -370,12 +371,13 @@ public class FFmpegService : IFFmpegService
         }
         catch (OperationCanceledException)
         {
-            _logger.LogInformation("{ToolName} execution cancelled.", toolName);
+            LogToolExecutionCancelled(toolName);
+
             throw;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error executing {ToolName}.", toolName);
+            LogToolExecutionError(ex, toolName);
             return (-1, string.Empty, ex.Message);
         }
         finally
@@ -439,9 +441,79 @@ public class FFmpegService : IFFmpegService
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to kill ffmpeg process.");
+            LogKillProcessFailed(ex);
         }
     }
+
+    #region Logging
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Extracting audio from '{Input}' to '{Output}' with language '{Lang}'")]
+    private partial void LogExtractingAudio(string? input, string? output, string? lang);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "FFmpeg encoder path is not configured.")]
+    private partial void LogEncoderPathNotConfigured();
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "URL validation failed for '{Url}'")]
+    private partial void LogUrlValidationFailed(string? url);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "URL validation threw exception for '{Url}'")]
+    private partial void LogUrlValidationException(Exception ex, string? url);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Extracting audio from '{Input}' to '{Output}' with language '{Lang}'")]
+    private partial void LogExtractingAudioFromWeb(string? input, string? output, string? lang);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "URL or path cannot be null or empty.")]
+    private partial void LogUrlOrPathEmpty();
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Read URL from .strm file: {Url}")]
+    private partial void LogReadUrlFromStrm(string? url);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Failed to read .strm file at {Path}")]
+    private partial void LogStrmReadError(Exception ex, string? path);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Probing media info for '{UrlOrPath}' ")]
+    private partial void LogProbingMediaInfo(string? urlOrPath);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Validation failed for '{Input}' (not a local file and URL validation failed)")]
+    private partial void LogValidationFailed(string? input);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Validation threw exception for '{Input}'")]
+    private partial void LogValidationException(Exception ex, string? input);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "ffprobe failed for '{UrlOrPath}' with exit code {ExitCode}. Error: {Error}")]
+    private partial void LogFfprobeFailed(string? urlOrPath, int exitCode, string? error);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "ffprobe returned empty output for '{UrlOrPath}'.")]
+    private partial void LogFfprobeEmptyOutput(string? urlOrPath);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "No streams found for '{UrlOrPath}' or JSON parsing failed.")]
+    private partial void LogNoStreamsFound(string? urlOrPath);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Could not get file size for local file '{UrlOrPath}'.")]
+    private partial void LogFileSizeError(Exception ex, string? urlOrPath);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "URL validation failed for '{Url}'")]
+    private partial void LogDownloadUrlValidationFailed(string? url);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "URL validation threw exception for '{Url}'")]
+    private partial void LogDownloadUrlValidationException(Exception ex, string? url);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Downloading M3U8 stream from '{Url}' to '{Output}'")]
+    private partial void LogDownloadingM3U8(string? url, string? output);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "{ToolName} path is not configured.")]
+    private partial void LogToolPathNotConfigured(string? toolName);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "{ToolName} execution cancelled.")]
+    private partial void LogToolExecutionCancelled(string? toolName);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Error executing {ToolName}.")]
+    private partial void LogToolExecutionError(Exception ex, string? toolName);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Failed to kill ffmpeg process.")]
+    private partial void LogKillProcessFailed(Exception ex);
+
+    #endregion
 
     // Helper classes for JSON deserialization of ffprobe output
     private sealed record FfprobeOutput

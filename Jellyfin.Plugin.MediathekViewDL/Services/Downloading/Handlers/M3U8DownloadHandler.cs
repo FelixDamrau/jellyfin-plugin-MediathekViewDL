@@ -14,7 +14,7 @@ namespace Jellyfin.Plugin.MediathekViewDL.Services.Downloading.Handlers;
 /// <summary>
 /// Handler for downloading M3U8 streams.
 /// </summary>
-public class M3U8DownloadHandler : IDownloadHandler
+public partial class M3U8DownloadHandler : IDownloadHandler
 {
     private readonly ILogger<M3U8DownloadHandler> _logger;
     private readonly IFFmpegService _ffmpegService;
@@ -49,7 +49,8 @@ public class M3U8DownloadHandler : IDownloadHandler
     /// <inheritdoc />
     public async Task<bool> ExecuteAsync(DownloadItem item, DownloadJob job, IProgress<double> progress, CancellationToken cancellationToken)
     {
-        _logger.LogInformation("Downloading M3U8 stream for '{Title}' from '{Url}' to '{Path}'.", job.Title, item.SourceUrl, item.DestinationPath);
+        LogDownloadingM3U8(job.Title, item.SourceUrl, item.DestinationPath);
+
         var tempPath = TempFileHelper.GetTempFilePath(item.DestinationPath, ".mkv", _configProvider, _appPaths, _logger);
         try
         {
@@ -64,7 +65,7 @@ public class M3U8DownloadHandler : IDownloadHandler
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to download or move M3U8 stream for {DestinationPath}", item.DestinationPath);
+            LogM3U8DownloadFailed(ex, item.DestinationPath);
             return false;
         }
         finally
@@ -77,9 +78,22 @@ public class M3U8DownloadHandler : IDownloadHandler
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "Failed to delete temporary video file {TempPath}", tempPath);
+                    LogTempFileDeleteFailed(ex, tempPath);
                 }
             }
         }
     }
+
+    #region Logging
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Downloading M3U8 stream for '{Title}' from '{Url}' to '{Path}'.")]
+    private partial void LogDownloadingM3U8(string? title, string? url, string? path);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Failed to download or move M3U8 stream for {DestinationPath}")]
+    private partial void LogM3U8DownloadFailed(Exception ex, string? destinationPath);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Failed to delete temporary video file {TempPath}")]
+    private partial void LogTempFileDeleteFailed(Exception ex, string? tempPath);
+
+    #endregion
 }

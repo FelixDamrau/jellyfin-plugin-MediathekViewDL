@@ -25,7 +25,7 @@ namespace Jellyfin.Plugin.MediathekViewDL.Services.Subscriptions;
 /// <summary>
 /// Service responsible for searching and filtering content for subscriptions.
 /// </summary>
-public class SubscriptionProcessor : ISubscriptionProcessor
+public partial class SubscriptionProcessor : ISubscriptionProcessor
 {
     private readonly ILogger<SubscriptionProcessor> _logger;
     private readonly IMediathekViewApiClient _apiClient;
@@ -89,7 +89,7 @@ public class SubscriptionProcessor : ISubscriptionProcessor
             config.Download.DownloadSubtitles,
             cancellationToken).ConfigureAwait(false);
 
-        _logger.LogInformation("Found {Count} new items for '{SubscriptionName}'.", jobs.Count, subscription.Name);
+        LogFoundNewItems(jobs.Count, subscription.Name);
 
         foreach (var job in jobs)
         {
@@ -123,7 +123,8 @@ public class SubscriptionProcessor : ISubscriptionProcessor
         {
             if (!subscription.IgnoreHistory && await IsInDownloadCache(item.Id, subscription.Id).ConfigureAwait(false))
             {
-                _logger.LogDebug("Skipping item '{Title}' (ID: {Id}) as it was already processed for subscription '{SubscriptionName}'.", item.Title, item.Id, subscription.Name);
+                LogSkippingAlreadyProcessed(item.Title, item.Id, subscription.Name);
+
                 continue;
             }
 
@@ -219,7 +220,7 @@ public class SubscriptionProcessor : ISubscriptionProcessor
                 // Subtitles are downloaded separately.
                 case FileType.Subtitle:
                 default:
-                    _logger.LogError("Unknown file type '{FileType}'.", paths.MainType);
+                    LogUnknownFileType(paths.MainType);
                     break;
             }
 
@@ -306,14 +307,14 @@ public class SubscriptionProcessor : ISubscriptionProcessor
     {
         if (tempVideoInfo == null)
         {
-            _logger.LogDebug("Skipping item '{Title}' due to video info parsing failure.", item.Title);
+            LogSkippingParsingFailure(item.Title);
+
             return false;
         }
 
         if (localEpisodeCache != null && localEpisodeCache.Contains(tempVideoInfo))
         {
-            _logger.LogInformation(
-                "Skipping item '{Title}' (S{Season}E{Episode} / Abs: {Abs}) as it was found locally via enhanced duplicate detection.",
+            LogSkippingFoundLocally(
                 item.Title,
                 tempVideoInfo.SeasonNumber,
                 tempVideoInfo.EpisodeNumber,
@@ -326,25 +327,29 @@ public class SubscriptionProcessor : ISubscriptionProcessor
 
         if (!subscription.Accessibility.AllowAudioDescription && tempVideoInfo.HasAudiodescription)
         {
-            _logger.LogDebug("Skipping item '{Title}' due to Audiodescription and subscription preference.", item.Title);
+            LogSkippingAudioDescription(item.Title);
+
             return false;
         }
 
         if (!subscription.Accessibility.AllowSignLanguage && tempVideoInfo.HasSignLanguage)
         {
-            _logger.LogDebug("Skipping item '{Title}' due to Sign Language and subscription preference.", item.Title);
+            LogSkippingSignLanguage(item.Title);
+
             return false;
         }
 
         if (subscription.Series.EnforceSeriesParsing && !tempVideoInfo.IsShow && !subscription.Series.TreatNonEpisodesAsExtras)
         {
-            _logger.LogDebug("Skipping item '{Title}' due to EnforceSeriesParsing and parsing result.", item.Title);
+            LogSkippingEnforceSeriesParsing(item.Title);
+
             return false;
         }
 
         if ((subscription.Series.EnforceSeriesParsing && !subscription.Series.AllowAbsoluteEpisodeNumbering && !tempVideoInfo.HasSeasonEpisodeNumbering) && (!subscription.Series.TreatNonEpisodesAsExtras && !tempVideoInfo.IsShow))
         {
-            _logger.LogDebug("Skipping item '{Title}' due to absolute episode numbering and subscription preference.", item.Title);
+            LogSkippingAbsoluteNumbering(item.Title);
+
             return false;
         }
 
@@ -352,19 +357,22 @@ public class SubscriptionProcessor : ISubscriptionProcessor
         {
             if (tempVideoInfo.IsTrailer && !subscription.Series.SaveTrailers)
             {
-                _logger.LogDebug("Skipping item '{Title}' because it is a trailer and SaveTrailers is disabled.", item.Title);
+                LogSkippingTrailer(item.Title);
+
                 return false;
             }
 
             if (tempVideoInfo.IsInterview && !subscription.Series.SaveInterviews)
             {
-                _logger.LogDebug("Skipping item '{Title}' because it is an interview and SaveInterviews is disabled.", item.Title);
+                LogSkippingInterview(item.Title);
+
                 return false;
             }
 
             if (tempVideoInfo is { IsTrailer: false, IsInterview: false, IsShow: false } && !subscription.Series.SaveGenericExtras)
             {
-                _logger.LogDebug("Skipping item '{Title}' because it is a generic extra and SaveGenericExtras is disabled.", item.Title);
+                LogSkippingGenericExtra(item.Title);
+
                 return false;
             }
         }
@@ -426,7 +434,7 @@ public class SubscriptionProcessor : ISubscriptionProcessor
                     candidateUrl = url;
                     if (url != validCandidates.First())
                     {
-                        _logger.LogWarning("Primary quality download failed for '{Title}'. Fallback to: {Url}", item.Title, url);
+                        LogFallbackQuality(item.Title, url);
                     }
 
                     break;
@@ -434,13 +442,13 @@ public class SubscriptionProcessor : ISubscriptionProcessor
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to validate URL '{Url}' for '{Title}'. Trying next quality...", url, item.Title);
+                LogUrlValidationFailed(ex, url, item.Title);
             }
         }
 
         if (string.IsNullOrWhiteSpace(candidateUrl))
         {
-            _logger.LogWarning("No valid video URL found for item '{Title}'.", item.Title);
+            LogNoValidUrl(item.Title);
             return null;
         }
 
@@ -481,7 +489,7 @@ public class SubscriptionProcessor : ISubscriptionProcessor
             }
             catch (MediathekException ex)
             {
-                _logger.LogWarning(ex, "Could not retrieve search results for subscription '{SubscriptionName}' due to an API error.", subscription.Name);
+                LogSearchFailed(ex, subscription.Name);
                 yield break;
             }
 
@@ -501,4 +509,56 @@ public class SubscriptionProcessor : ISubscriptionProcessor
             }
         }
     }
+
+    #region Logging
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Found {Count} new items for '{SubscriptionName}'.")]
+    private partial void LogFoundNewItems(int count, string? subscriptionName);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Skipping item '{Title}' (ID: {Id}) as it was already processed for subscription '{SubscriptionName}'.")]
+    private partial void LogSkippingAlreadyProcessed(string? title, string? id, string? subscriptionName);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Unknown file type '{FileType}'.")]
+    private partial void LogUnknownFileType(FileType fileType);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Skipping item '{Title}' due to video info parsing failure.")]
+    private partial void LogSkippingParsingFailure(string? title);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Skipping item '{Title}' (S{Season}E{Episode} / Abs: {Abs}) as it was found locally via enhanced duplicate detection.")]
+    private partial void LogSkippingFoundLocally(string? title, int? season, int? episode, int? abs);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Skipping item '{Title}' due to Audiodescription and subscription preference.")]
+    private partial void LogSkippingAudioDescription(string? title);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Skipping item '{Title}' due to Sign Language and subscription preference.")]
+    private partial void LogSkippingSignLanguage(string? title);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Skipping item '{Title}' due to EnforceSeriesParsing and parsing result.")]
+    private partial void LogSkippingEnforceSeriesParsing(string? title);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Skipping item '{Title}' due to absolute episode numbering and subscription preference.")]
+    private partial void LogSkippingAbsoluteNumbering(string? title);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Skipping item '{Title}' because it is a trailer and SaveTrailers is disabled.")]
+    private partial void LogSkippingTrailer(string? title);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Skipping item '{Title}' because it is an interview and SaveInterviews is disabled.")]
+    private partial void LogSkippingInterview(string? title);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Skipping item '{Title}' because it is a generic extra and SaveGenericExtras is disabled.")]
+    private partial void LogSkippingGenericExtra(string? title);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Primary quality download failed for '{Title}'. Fallback to: {Url}")]
+    private partial void LogFallbackQuality(string? title, string? url);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Failed to validate URL '{Url}' for '{Title}'. Trying next quality...")]
+    private partial void LogUrlValidationFailed(Exception ex, string? url, string? title);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "No valid video URL found for item '{Title}'.")]
+    private partial void LogNoValidUrl(string? title);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Could not retrieve search results for subscription '{SubscriptionName}' due to an API error.")]
+    private partial void LogSearchFailed(Exception ex, string? subscriptionName);
+
+    #endregion
 }

@@ -26,7 +26,7 @@ namespace Jellyfin.Plugin.MediathekViewDL.LiveTv;
 /// <summary>
 /// A tuner host for Zapp channels.
 /// </summary>
-public class ZappTunerHost : ITunerHost, IConfigurableTunerHost
+public partial class ZappTunerHost : ITunerHost, IConfigurableTunerHost
 {
     private readonly IMediathekViewApiClient _apiClient;
     private readonly ILogger<ZappTunerHost> _logger;
@@ -71,7 +71,7 @@ public class ZappTunerHost : ITunerHost, IConfigurableTunerHost
         var tunerHostInfo = LiveTvUtils.GetTunerHostInfo(_serverConfig);
         if (tunerHostInfo is null)
         {
-            _logger.LogWarning("Zapp tuner host is not configured. Please add a tuner host with type 'zapp' in the Live TV settings.");
+            LogTunerHostNotConfigured();
             return [];
         }
 
@@ -171,6 +171,13 @@ public class ZappTunerHost : ITunerHost, IConfigurableTunerHost
 
         return mediaSource;
     }
+
+    #region Logging
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Zapp tuner host is not configured. Please add a tuner host with type 'zapp' in the Live TV settings.")]
+    private partial void LogTunerHostNotConfigured();
+
+    #endregion
 
     private sealed class ZappLiveStream : ILiveStream
     {

@@ -14,7 +14,7 @@ namespace Jellyfin.Plugin.MediathekViewDL.Services.Downloading.Handlers;
 /// <summary>
 /// Handler for direct file downloads.
 /// </summary>
-public class DirectDownloadHandler : BaseDownloadHandler
+public partial class DirectDownloadHandler : BaseDownloadHandler
 {
     private readonly ILogger<DirectDownloadHandler> _logger;
     private readonly IFileDownloader _fileDownloader;
@@ -45,7 +45,8 @@ public class DirectDownloadHandler : BaseDownloadHandler
     /// <inheritdoc />
     public override async Task<bool> ExecuteAsync(DownloadItem item, DownloadJob job, IProgress<double> progress, CancellationToken cancellationToken)
     {
-        _logger.LogInformation("Downloading '{Title}' to '{Path}'.", job.Title, item.DestinationPath);
+        LogDownloading(job.Title, item.DestinationPath);
+
         var tempPath = TempFileHelper.GetTempFilePath(item.DestinationPath, ".mkv", _configProvider, _appPaths, _logger);
         try
         {
@@ -60,7 +61,7 @@ public class DirectDownloadHandler : BaseDownloadHandler
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to extract or move audio file for {DestinationPath}", item.DestinationPath);
+            LogExtractOrMoveFailed(ex, item.DestinationPath);
             return false;
         }
         finally
@@ -73,9 +74,22 @@ public class DirectDownloadHandler : BaseDownloadHandler
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "Failed to delete temporary audio file {TempPath}", tempPath);
+                    LogTempFileDeleteFailed(ex, tempPath);
                 }
             }
         }
     }
+
+    #region Logging
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Downloading '{Title}' to '{Path}'.")]
+    private partial void LogDownloading(string? title, string? path);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Failed to extract or move audio file for {DestinationPath}")]
+    private partial void LogExtractOrMoveFailed(Exception ex, string? destinationPath);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Failed to delete temporary audio file {TempPath}")]
+    private partial void LogTempFileDeleteFailed(Exception ex, string? tempPath);
+
+    #endregion
 }
